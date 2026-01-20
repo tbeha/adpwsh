@@ -1,6 +1,6 @@
 <#
-.SYNOPSIS
-Gets last logon time for all Active Directory users.
+#.SYNOPSIS
+Gets last logon time for Active Directory users, optionally from a remote domain/controller.
 
 .PARAMETER Accurate
 If specified, queries all domain controllers and returns the most recent `lastLogon` value (accurate but slower).
@@ -8,18 +8,30 @@ If specified, queries all domain controllers and returns the most recent `lastLo
 .PARAMETER ExportPath
 Optional path to export results as CSV.
 
-.EXAMPLE
-.
-.
-Get-ADUsersLastLogon.ps1 -ExportPath C:\temp\ad-lastlogon.csv
+.PARAMETER Server
+Optional remote domain controller or domain to target (passed to AD cmdlets' `-Server`).
 
-Get-ADUsersLastLogon.ps1 -Accurate -ExportPath C:\temp\ad-lastlogon-accurate.csv
+.PARAMETER Credential
+Optional PSCredential to authenticate against the remote `-Server`.
+
+.PARAMETER Filter
+LDAP filter for `Get-ADUser`. Defaults to `*` (all users).
+
+.EXAMPLE
+Get-ADUsersLastLogon.ps1 -Server dc01.corp.contoso.com -Credential (Get-Credential) -ExportPath C:\temp\ad-lastlogon.csv
+
+Get-ADUsersLastLogon.ps1 -Accurate -Server corp.contoso.com -ExportPath C:\temp\ad-lastlogon-accurate.csv
 #>
 
 [CmdletBinding()]
 param(
     [switch]$Accurate,
-    [string]$ExportPath
+    [string]$ExportPath,
+    [string]$Server,
+    [System.Management.Automation.PSCredential]
+    $Credential,
+    [string]
+    $Filter = '*'
 )
 
 function Ensure-ADModule {
@@ -45,7 +57,11 @@ Ensure-ADModule
 
 if ($Accurate) {
     try {
-        $dcs = Get-ADDomainController -Filter * | Select-Object -ExpandProperty HostName
+        if ($Server) {
+            $dcs = Get-ADDomainController -Filter * -Server $Server | Select-Object -ExpandProperty HostName
+        } else {
+            $dcs = Get-ADDomainController -Filter * | Select-Object -ExpandProperty HostName
+        }
     } catch {
         Write-Error "Failed to enumerate domain controllers: $_"
         exit 1
@@ -56,14 +72,20 @@ if ($Accurate) {
     }
 }
 
-$users = Get-ADUser -Filter * -Properties SamAccountName,Name,DistinguishedName,LastLogonDate  
+$getUserParams = @{ Filter = $Filter; Properties = @('SamAccountName','Name','DistinguishedName','LastLogonDate') }
+if ($Server) { $getUserParams.Server = $Server }
+if ($Credential) { $getUserParams.Credential = $Credential }
+
+$users = Get-ADUser @getUserParams
 
 $results = foreach ($u in $users) {
     if ($Accurate) {
         $best = $null
         foreach ($dc in $dcs) {
             try {
-                $uDC = Get-ADUser -Identity $u.DistinguishedName -Server $dc -Properties lastLogon -ErrorAction Stop
+                $params = @{ Identity = $u.DistinguishedName; Properties = 'lastLogon'; Server = $dc; ErrorAction = 'Stop' }
+                if ($Credential) { $params.Credential = $Credential }
+                $uDC = Get-ADUser @params
                 $dt = Convert-FileTimeToDateTime $uDC.lastLogon
                 if ($dt -and ($best -eq $null -or $dt -gt $best)) { $best = $dt }
             } catch {
