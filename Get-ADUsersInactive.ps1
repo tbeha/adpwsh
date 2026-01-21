@@ -33,10 +33,10 @@ LDAP filter for `Get-ADUser`. Defaults to `*` (all users).
 
 [CmdletBinding()]
 param(
-    [int]$Months = 6,
-    [switch]$IncludeDisabled,
-    [string]$ExportPath,
-    [string]$Server,
+    [int]$Months=6,
+    [switch]$IncludeDisabled=$true,
+    [string]$ExportPath="c:\temp\inactive-users.csv",
+    [string]$Server="suo04ctcw005.demo.local",
     [System.Management.Automation.PSCredential]
     $Credential,
     [string]

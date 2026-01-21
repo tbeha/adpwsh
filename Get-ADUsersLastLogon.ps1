@@ -26,8 +26,8 @@ Get-ADUsersLastLogon.ps1 -Accurate -Server corp.contoso.com -ExportPath C:\temp\
 [CmdletBinding()]
 param(
     [switch]$Accurate,
-    [string]$ExportPath,
-    [string]$Server,
+    [string]$ExportPath="c:\temp\ad-lastlogon.csv",
+    [string]$Server="suo04ctcw005.demo.local",
     [System.Management.Automation.PSCredential]
     $Credential,
     [string]
