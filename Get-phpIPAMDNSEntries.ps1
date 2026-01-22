@@ -42,54 +42,42 @@ Export format: 'CSV' or 'JSON'. Default is 'JSON'.
 
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory=$true)]
-    [string]$phpIPAMUrl,
-    
-    [string]$AppId,
-    
-    [string]$ApiKey,
-    
-    [string]$Token,
-    
-    [string]$ZoneName,
-    
-    [string]$RecordType,
-    
-    [string]$ExportPath,
-    
+    [string]$phpIPAMUrl = "http://suo04ctcinf7.demo.local/administration/api/",
+    [string]$AppId = "DNS",
+    [System.Management.Automation.PSCredential] $Credential,
+    [string]$ExportPath = "./phpipam-dns-records.csv",
     [ValidateSet('CSV', 'JSON')]
-    [string]$ExportFormat = 'JSON'
+    [string]$ExportFormat = 'CSV'
 )
+
+# Load the PSPHPIPAM module
+Import-Module PSPHPIPAM
 
 # Suppress certificate validation warnings if needed (not recommended for production)
 if ($PSVersionTable.PSVersion.Major -eq 5) {
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 }
 
-function Get-phpIPAMAuthToken {
+function Get-phpIPAMSession {
     <#
     .SYNOPSIS
-    Authenticates to phpIPAM API and returns an auth token.
+    Authenticates to phpIPAM API.
     #>
     param(
         [string]$Url,
         [string]$AppId,
-        [string]$ApiKey
+        [string]$Credential
     )
     
-    $authUrl = "$Url/user/"
-    
     try {
-        $response = Invoke-RestMethod -Uri $authUrl `
-            -Method Post `
-            -ContentType 'application/json' `
-            -Headers @{
-                'phpipam-app-id' = $AppId
-            } `
-            -Body (ConvertTo-Json @{ token = $ApiKey })
+        $response = New-PhpIpamSession -UseCredAuth `
+        -PhpIpamApiUrl $ApiUrl `
+        -AppID $AppId `
+        -Username $Cred.UserName `
+        -Password ($Cred.GetNetworkCredential().Password)
         
-        if ($response.success) {
-            return $response.data.token
+        if ($response){
+            return $response
         }
         else {
             Write-Error "Authentication failed: $($response.message)"
@@ -102,108 +90,31 @@ function Get-phpIPAMAuthToken {
     }
 }
 
-function Invoke-phpIPAMRequest {
-    <#
-    .SYNOPSIS
-    Makes an authenticated request to the phpIPAM API.
-    #>
-    param(
-        [string]$Endpoint,
-        [string]$Token,
-        [string]$Method = 'Get'
-    )
-    
-    try {
-        $response = Invoke-RestMethod -Uri $Endpoint `
-            -Method $Method `
-            -ContentType 'application/json' `
-            -Headers @{
-                'phpipam-app-id' = $Token
-            }
-        
-        return $response
-    }
-    catch {
-        Write-Error "API request failed: $_"
-        $null
-    }
-}
-
 # Main execution
 try {
     # Validate parameters
-    if (-not $Token -and (-not $AppId -or -not $ApiKey)) {
-        Write-Error "Either -Token or both -AppId and -ApiKey must be provided."
-        exit 1
-    }
+#    if (-not $Credential) {
+#        Write-Error "Credential must be provided."
+#        exit 1
+#    }
+ 
+    $Credential = Get-Credential -UserName "morpheus"
     
-    # Get authentication token if not provided
-    if (-not $Token) {
-        Write-Verbose "Authenticating to phpIPAM..."
-        $Token = Get-phpIPAMAuthToken -Url $phpIPAMUrl -AppId $AppId -ApiKey $ApiKey
-        Write-Verbose "Authentication successful."
-    }
-    
-    # Retrieve DNS zones
-    Write-Verbose "Retrieving DNS zones..."
-    $zonesEndpoint = "$phpIPAMUrl/dns/"
-    $zonesResponse = Invoke-phpIPAMRequest -Endpoint $zonesEndpoint -Token $Token
-    
-    if (-not $zonesResponse.success) {
-        Write-Error "Failed to retrieve DNS zones: $($zonesResponse.message)"
-        exit 1
-    }
-    
-    $zones = $zonesResponse.data
-    if (-not $zones) {
-        Write-Warning "No DNS zones found."
-        $zones = @()
-    }
-    
-    # Filter zones if specified
-    if ($ZoneName) {
-        $zones = $zones | Where-Object { $_.name -like "*$ZoneName*" }
-        if (-not $zones) {
-            Write-Warning "No zones matching filter '$ZoneName' found."
-            $zones = @()
-        }
-    }
+    # Get authentication session 
+    $response = Get-phpIPAMSession -Url $phpIPAMUrl -AppId $AppId -Credential $Credential
+
+    # Get DNS subnets
+    $subnets =  Get-PhpIpamAllSubnets
+
+    # Get all DNS records
     
     $dnsRecords = @()
-    
-    # Retrieve DNS records for each zone
-    foreach ($zone in $zones) {
-        Write-Verbose "Processing zone: $($zone.name) (ID: $($zone.id))"
-        
-        $recordsEndpoint = "$phpIPAMUrl/dns/$($zone.id)/records/"
-        $recordsResponse = Invoke-phpIPAMRequest -Endpoint $recordsEndpoint -Token $Token
-        
-        if ($recordsResponse.success) {
-            $records = $recordsResponse.data
-            if ($records) {
-                # Filter by record type if specified
-                if ($RecordType) {
-                    $records = $records | Where-Object { $_.type -eq $RecordType }
-                }
-                
-                # Add zone name to each record for context
-                foreach ($record in $records) {
-                    $record | Add-Member -NotePropertyName 'ZoneName' -NotePropertyValue $zone.name
-                    $dnsRecords += $record
-                }
-                
-                Write-Verbose "Found $($records.Count) records in zone $($zone.name)"
-            }
-        }
-        else {
-            Write-Warning "Failed to retrieve records for zone $($zone.name): $($recordsResponse.message)"
-        }
-    }
-    
-    # Output results
+    $dnsRecords = Get-PhpIpamAddresses
+       
+    # Output results 
     Write-Host "Retrieved $($dnsRecords.Count) DNS records."
     
-    if ($dnsRecords.Count -gt 0) {
+    if ($dnsRecords.Count -gt 0) { 
         # Display first 10 records
         Write-Host "`nShowing first 10 records:"
         $dnsRecords | Select-Object -First 10 | Format-Table -AutoSize
@@ -223,11 +134,17 @@ try {
             catch {
                 Write-Error "Failed to export records: $_"
             }
+        } 
+
+        # Export subnets list if requested
+        if ($ExportPath -and $ExportFormat -eq 'CSV') {   
+            $subnets | Export-Csv -Path ($ExportPath -replace '\.csv$', '-subnets.csv') -NoTypeInformation -Force
+            Write-Host "Subnets exported to CSV: $($ExportPath -replace '\.csv$', '-subnets.csv')"
         }
-    }
-    
+    }    
     # Return all records to pipeline
     $dnsRecords
+     
 }
 catch {
     Write-Error "An error occurred: $_"
