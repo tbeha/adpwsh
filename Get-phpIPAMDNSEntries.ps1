@@ -45,7 +45,7 @@ param(
     [string]$phpIPAMUrl = "http://suo04ctcinf7.demo.local/administration/api/",
     [string]$AppId = "DNS",
     [System.Management.Automation.PSCredential] $Credential,
-    [string]$ExportPath = "./phpipam-dns-records.csv",
+    [string]$ExportPath = "./dnsrecords.csv",
     [ValidateSet('CSV', 'JSON')]
     [string]$ExportFormat = 'CSV'
 )
@@ -93,12 +93,12 @@ function Get-phpIPAMSession {
 # Main execution
 try {
     # Validate parameters
-#    if (-not $Credential) {
-#        Write-Error "Credential must be provided."
-#        exit 1
-#    }
+    if (-not $Credential) {
+        Write-Error "Credential must be provided."
+        exit 1
+    }
  
-    $Credential = Get-Credential -UserName "morpheus"
+    #>$Credential = Get-Credential -UserName "morpheus"
     
     # Get authentication session 
     $response = Get-phpIPAMSession -Url $phpIPAMUrl -AppId $AppId -Credential $Credential
@@ -141,9 +141,19 @@ try {
             $subnets | Export-Csv -Path ($ExportPath -replace '\.csv$', '-subnets.csv') -NoTypeInformation -Force
             Write-Host "Subnets exported to CSV: $($ExportPath -replace '\.csv$', '-subnets.csv')"
         }
+
+        # Export Subnet specific DNS records
+        foreach ($subnet in $subnets) {
+            $subnetDnsRecords = $dnsRecords | Where-Object { $_.subnetId -eq $subnet.id }
+            if ($subnetDnsRecords.Count -gt 0) {
+                $subnetExportPath = $ExportPath -replace '\.csv$', "-$($subnet.subnet).csv"
+                $subnetDnsRecords | Export-Csv -Path $subnetExportPath -NoTypeInformation -Force
+                Write-Host "Subnet specific DNS records exported to CSV: $subnetExportPath"
+            }
+        }   
     }    
     # Return all records to pipeline
-    $dnsRecords
+    #$dnsRecords
      
 }
 catch {
