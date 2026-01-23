@@ -39,7 +39,7 @@ param(
     [string]$CsvPath = ".\ad_groups_export.csv",
 
     [Parameter(Mandatory=$false)]
-    [switch]$IncludeMembers,
+    [switch]$IncludeMembers = $false,
 
     [Parameter(Mandatory=$false)]
     [string]$DomainController = 'suo04ctcw005.demo.local',
@@ -56,7 +56,7 @@ begin {
     Import-Module ActiveDirectory -ErrorAction Stop
 
     # Build credential if requested
-    $Credential = Get-Credential 
+    #$Credential = Get-Credential 
 
 
     # Build common parameters for AD cmdlets
@@ -125,7 +125,8 @@ process {
 
                 $members = @()
                 try {
-                    $members = Get-ADGroupMember @adParams -Identity $g.DistinguishedName -Recursive -ErrorAction Stop
+                    $members = Get-ADGroupMember -Credential $Credential -server $DomainController -Identity $g.Name -Recursive |
+                                Where-Object { $_.objectClass -eq 'user' }
                 }
                 catch {
                     Write-Warning "Failed to enumerate members for '$($g.Name)': $($_.Exception.Message)"
