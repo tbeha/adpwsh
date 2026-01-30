@@ -75,11 +75,10 @@ param(
     [string]$SourceServer="suo04ctcw005.demo.local",
     [System.Management.Automation.PSCredential]$SourceCredential=$Cred0,
 
-    [string]$TargetServer="dmodc1.dmo.ctc.int.hpe.com",
+    [string]$TargetServer="dmocd1.dmo.ctc.int.hpe.com",
     [System.Management.Automation.PSCredential]$TargetCredential=$Cred1,
 
-    #[Parameter(Mandatory=$true)]
-    [string]$SourceIdentity='behat',
+    [string]$SourceIdentity="abehat",
 
     [string]$TargetOU="OU=Users,OU=Democenter,DC=dmo,DC=ctc,DC=int,DC=hpe,DC=com",
 
@@ -94,7 +93,7 @@ param(
 
     [switch]$IncludePrivilegedGroups,
 
-    [System.Security.SecureString]$InitialPassword=(ConvertTo-SecureString "CTC!5a7cxw1HPE" -AsPlainText -Force)
+    [System.Security.SecureString]$InitialPassword=(ConvertTo-SecureString "CTC12345!" -AsPlainText -Force)
 )
 
 begin {
@@ -109,11 +108,7 @@ begin {
 
     # Default attribute set to copy (safe business/profile attributes only)
     $script:AttrsToCopy = @(
-        'givenName','sn','displayName','description',
-        'mail','userPrincipalName','department','title',
-        'telephoneNumber','mobile','ipPhone',
-        'physicalDeliveryOfficeName','streetAddress','l','st','postalCode','company',
-        'employeeID','employeeNumber','EmailAddress'
+        'EmailAddress','Description'
     )
 
     # For safety, exclude privileged/built-in groups unless explicitly allowed
@@ -230,15 +225,15 @@ begin {
                 Credential  = $TargetCredential
             }
             if ($GroupCreationOU) { $createParams['Path'] = $GroupCreationOU }
-            
-            try {
-                New-ADGroup @createParams -ErrorAction Stop
-                $tg = Get-ADGroup -Identity $groupName -Server $TargetServer -Credential $TargetCredential -ErrorAction Stop
-                Write-Info "Created target group '$groupName'."
-            } catch {
-                Write-Err "Failed to create target group '$groupName': $($_.Exception.Message)"
+            if ($PSCmdlet.ShouldProcess("Target group '$groupName'","Create")) {
+                try {
+                    New-ADGroup @createParams -ErrorAction Stop
+                    $tg = Get-ADGroup -Identity $groupName -Server $TargetServer -Credential $TargetCredential -ErrorAction Stop
+                    Write-Info "Created target group '$groupName'."
+                } catch {
+                    Write-Err "Failed to create target group '$groupName': $($_.Exception.Message)"
+                }
             }
-            
         }
 
         return $tg
@@ -251,157 +246,9 @@ process {
         $srcUser = Get-SourceUser -identity $SourceIdentity
         if (-not $srcUser) { throw "Source user '$SourceIdentity' not found." }
         Write-Info "Found source user: $($srcUser.Name) (sAM: $($srcUser.SamAccountName))"
-
-        # Decide target sAM and UPN
-        if ([string]::IsNullOrWhiteSpace($TargetSamAccountName)) {
-            $TargetSamAccountName = $srcUser.SamAccountName
-        }
-        if ([string]::IsNullOrWhiteSpace($TargetUpnSuffix)) {
-            $TargetUpnSuffix = Get-DomainDnsRoot -Server $TargetServer -Credential $TargetCredential
-        }
-        $targetUPN = "$TargetSamAccountName@$TargetUpnSuffix"
-
-        # Check whether target user already exists
-        $existingTgt = $null
-        try {
-            $existingTgt = Get-ADUser -Identity $TargetSamAccountName -Server $TargetServer -Credential $TargetCredential -ErrorAction SilentlyContinue
-            if (-not $existingTgt) {
-                $existingTgt = Get-ADUser -Filter { UserPrincipalName -eq $targetUPN } -Server $TargetServer -Credential $TargetCredential -ErrorAction SilentlyContinue
-            }
-        } catch { }
-
-        if ($existingTgt) {
-            Write-Warn "Target user already exists: $($existingTgt.DistinguishedName). Will only synchronize group memberships."
-        } else {
-            # Build attribute map (copy only safe attributes if they exist on source)
-            $newUserParams = @{
-                Name                  = $srcUser.Name
-                SamAccountName        = $TargetSamAccountName
-                UserPrincipalName     = $targetUPN
-                AccountPassword       = $InitialPassword
-                ChangePasswordAtLogon = $false
-                Enabled               = $false
-                Path                  = $TargetOU
-                Server                = $TargetServer
-                Credential            = $TargetCredential
-            }
-
-            foreach ($a in $AttrsToCopy) {
-                $val = $srcUser.$a
-                if ($null -ne $val -and $val -ne '') {
-                    switch ($a) {
-                        'userPrincipalName' { # override with target UPN
-                            $newUserParams['UserPrincipalName'] = $targetUPN
-                        }
-                        default {
-                            # map common AD param names when available
-                            switch ($a) {
-                                'mail'   { $newUserParams['EmailAddress'] = $val }
-                                'sn'     { $newUserParams['Surname']      = $val }
-                                default  { $newUserParams[$a] = $val }
-                            }
-                        }
-                    }
-                }
-            }
-
-            try {
-                New-ADUser @newUserParams -ErrorAction Stop
-                Write-Info "Created target user '$TargetSamAccountName'."
-                # Optionally enable now or leave disabled until group replication completes
-                Enable-ADAccount -Identity $TargetSamAccountName -Server $TargetServer -Credential $TargetCredential -ErrorAction Stop
-                Write-Info "Enabled target user '$TargetSamAccountName'."
-            } catch {
-                Write-Err "Failed to create/enable target user: $($_.Exception.Message)"
-                return
-            }
-            
-        }
-
-        # Ensure we have a fresh target reference (created or pre-existing)
-        $tgtUser = Get-ADUser -Identity $TargetSamAccountName -Server $TargetServer -Credential $TargetCredential -ErrorAction Stop
-
-        # Collect source groups
-        Write-Info "Collecting source group memberships (Nested: $IncludeNestedGroups) ..."
-        $primaryGroupDN = Get-PrimaryGroupDN -user $srcUser
-        $srcGroups = Get-SourceGroups -user $srcUser -Nested:$IncludeNestedGroups
-
-        # Filter out primary group and privileged groups (unless allowed)
-        $groupsToProcess = @()
-        foreach ($g in $srcGroups) {
-            if (-not $g) { continue }
-            if ($primaryGroupDN -and ($g.DistinguishedName -eq $primaryGroupDN)) { continue }
-
-            if (-not $IncludePrivilegedGroups) {
-                if ($PrivilegedGroupNames -contains $g.Name) {
-                    Write-Warn "Skipping privileged/built-in group '$($g.Name)'. Use -IncludePrivilegedGroups to include."
-                    continue
-                }
-            }
-            $groupsToProcess += $g
-        }
-
-        if (-not $groupsToProcess -or $groupsToProcess.Count -eq 0) {
-            Write-Info "No eligible groups to migrate."
-        } else {
-            Write-Info "Preparing to migrate $($groupsToProcess.Count) groups..."
-        }
-
-        $added    = New-Object System.Collections.Generic.List[string]
-        $missing  = New-Object System.Collections.Generic.List[string]
-        $skipped  = New-Object System.Collections.Generic.List[string]
-        $exists   = New-Object System.Collections.Generic.List[string]
-
-        foreach ($sg in $groupsToProcess) {
-            $targetName = Map-GroupName -srcGroup $sg
-            $tg = Get-OrCreate-TargetGroup -groupName $targetName
-
-            if (-not $tg) {
-                Write-Warn "Target group missing: '$targetName' (mapped from '$($sg.Name)')"
-                $missing.Add($targetName) | Out-Null
-                continue
-            }
-
-            # Check if already member
-            $isMember = $false
-            try {
-                $isMember = (Get-ADGroupMember -Identity $tg.DistinguishedName -Server $TargetServer -Credential $TargetCredential -Recursive -ErrorAction Stop |
-                             Where-Object { $_.objectClass -eq 'user' -and $_.SamAccountName -eq $tgtUser.SamAccountName } |
-                             Select-Object -First 1) -ne $null
-            } catch { $isMember = $false }
-
-            if ($isMember) {
-                $exists.Add($tg.Name) | Out-Null
-                continue
-            }
-
-            try {
-                Add-ADGroupMember -Identity $tg.DistinguishedName -Members $tgtUser.DistinguishedName `
-                    -Server $TargetServer -Credential $TargetCredential -ErrorAction Stop
-                $added.Add($tg.Name) | Out-Null
-                Write-Info "Added to target group: $($tg.Name)"
-            } catch {
-                Write-Err "Failed to add '$($tgtUser.SamAccountName)' to '$($tg.Name)': $($_.Exception.Message)"
-                $skipped.Add($tg.Name) | Out-Null
-            }
-            
-        }
-
-        # Summary
-        Write-Host ""
-        Write-Host "===== MIGRATION SUMMARY =====" -ForegroundColor Green
-        Write-Host ("Source User:  {0}  (sAM: {1})" -f $srcUser.Name, $srcUser.SamAccountName)
-        Write-Host ("Target User:  {0}  (sAM: {1})" -f $tgtUser.Name, $tgtUser.SamAccountName)
-        if ($added.Count)   { Write-Host ("Added to groups:        " + ($added   -join ', ')) }
-        if ($exists.Count)  { Write-Host ("Already member of:      " + ($exists  -join ', ')) }
-        if ($missing.Count) { Write-Host ("Missing target groups:  " + ($missing -join ', ')) }
-        if ($skipped.Count) { Write-Host ("Failed/Skipped groups:  " + ($skipped -join ', ')) }
-        Write-Host "=============================" -ForegroundColor Green
-
-        Write-Info "Done."
-    }
-    catch {
-        Write-Err "Unhandled error: $($_.Exception.Message)"
-        throw
-    }
+        $srcUser | Format-List *
+    } catch {
+        Write-Err $_.Exception.Message
+        return
+    }   
 }

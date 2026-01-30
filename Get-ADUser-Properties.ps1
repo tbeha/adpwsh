@@ -26,10 +26,10 @@ Get-ADUsersLastLogon.ps1 -Accurate -Server corp.contoso.com -ExportPath C:\temp\
 [CmdletBinding()]
 param(
     [switch]$Accurate,
-    [string]$ExportPath="c:\temp\dmo-lastlogon.csv",
-    [string]$Server="dmodc1.dmo.ctc.int.hpe.com",
+    [string]$ExportPath="c:\temp\ad-user.csv",
+    [string]$Server="suo04ctcw005.demo.local",
     [System.Management.Automation.PSCredential]
-    $Credential = $Cred1,
+    $Credential = $Cred,
     [string]
     $Filter = '*'
 )
@@ -72,48 +72,13 @@ if ($Accurate) {
     }
 }
 
-$getUserParams = @{ Filter = $Filter; Properties = @('SamAccountName','Name','DistinguishedName','LastLogonDate') }
+#$getUserParams = @{ Filter = $Filter; Properties = @('SamAccountName','Name','DistinguishedName','LastLogonDate') }
+#$getUserParams = @{ Filter = $Filter}
 if ($Server) { $getUserParams.Server = $Server }
 if ($Credential) { $getUserParams.Credential = $Credential }
 
-$users = Get-ADUser @getUserParams
-
-$results = foreach ($u in $users) {
-    if ($Accurate) {
-        $best = $null
-        foreach ($dc in $dcs) {
-            try {
-                $params = @{ Identity = $u.DistinguishedName; Properties = 'lastLogon'; Server = $dc; ErrorAction = 'Stop' }
-                if ($Credential) { $params.Credential = $Credential }
-                $uDC = Get-ADUser @params
-                $dt = Convert-FileTimeToDateTime $uDC.lastLogon
-                if ($dt -and ($best -eq $null -or $dt -gt $best)) { $best = $dt }
-            } catch {
-                continue
-            }
-        }
-        $last = $best
-    } else {
-        $last = $u.LastLogonDate
-    }
-
-    [PSCustomObject]@{
-        SamAccountName    = $u.SamAccountName
-        Name              = $u.Name
-        DistinguishedName = $u.DistinguishedName
-        LastLogon         = $last
-    }
-}
-
-$ordered = $results | Sort-Object @{Expression={$_.LastLogon};Descending=$true}, SamAccountName
-
-if ($ExportPath) {
-    try {
-        $ordered | Select-Object SamAccountName,Name,DistinguishedName,@{Name='LastLogon';Expression={if ($_.LastLogon){$_.LastLogon.ToString('u')}else{'Never'}}} | Export-Csv -Path $ExportPath -NoTypeInformation -Encoding UTF8
-        Write-Output "Exported results to $ExportPath"
-    } catch {
-        Write-Error "Failed to export CSV: $_"
-    }
-} else {
-    $ordered | Select-Object SamAccountName,Name,DistinguishedName,@{Name='LastLogon';Expression={if ($_.LastLogon){$_.LastLogon.ToString('u')}else{'Never'}}} | Format-Table -AutoSize
-}
+$properties = Get-ADUser -Identity abehat -Server $Server -Credential $Credential -Properties * |
+Get-Member -MemberType Properties |
+Select-Object -ExpandProperty Name |
+Sort-Object
+$properties | Format-List 
