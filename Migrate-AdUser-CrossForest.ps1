@@ -78,8 +78,8 @@ param(
     [string]$TargetServer="dmodc1.dmo.ctc.int.hpe.com",
     [System.Management.Automation.PSCredential]$TargetCredential=$Cred1,
 
-    #[Parameter(Mandatory=$true)]
-    [string]$SourceIdentity='behat',
+    [Parameter(Mandatory=$true)]
+    [string]$SourceIdentity,
 
     [string]$TargetOU="OU=Users,OU=Democenter,DC=dmo,DC=ctc,DC=int,DC=hpe,DC=com",
 
@@ -109,7 +109,7 @@ begin {
 
     # Default attribute set to copy (safe business/profile attributes only)
     $script:AttrsToCopy = @(
-        'givenName','sn','displayName','description',
+        'givenName','Surname','displayName','description',
         'mail','userPrincipalName','department','title',
         'telephoneNumber','mobile','ipPhone',
         'physicalDeliveryOfficeName','streetAddress','l','st','postalCode','company',
@@ -297,7 +297,6 @@ process {
                             # map common AD param names when available
                             switch ($a) {
                                 'mail'   { $newUserParams['EmailAddress'] = $val }
-                                'sn'     { $newUserParams['Surname']      = $val }
                                 default  { $newUserParams[$a] = $val }
                             }
                         }
@@ -308,9 +307,14 @@ process {
             try {
                 New-ADUser @newUserParams -ErrorAction Stop
                 Write-Info "Created target user '$TargetSamAccountName'."
+                # Set the account parameters
                 # Optionally enable now or leave disabled until group replication completes
-                Enable-ADAccount -Identity $TargetSamAccountName -Server $TargetServer -Credential $TargetCredential -ErrorAction Stop
-                Write-Info "Enabled target user '$TargetSamAccountName'."
+                if ($newUserParams.Enabled -eq $true) {
+                    Write-Info "Target user '$TargetSamAccountName' created disabled. Enabling now..."
+                    Enable-ADAccount -Identity $TargetSamAccountName -Server $TargetServer -Credential $TargetCredential -ErrorAction Stop
+                    Write-Info "Enabled target user '$TargetSamAccountName'."
+                }
+
             } catch {
                 Write-Err "Failed to create/enable target user: $($_.Exception.Message)"
                 return
