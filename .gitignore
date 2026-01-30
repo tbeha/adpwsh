@@ -101,3 +101,5 @@ dnsrecords-subnets.csv
 dnsrecords.csv
 ad_groups_export.csv
 adgroups.csv
+output/adusers.csv
+output/test-users.csv

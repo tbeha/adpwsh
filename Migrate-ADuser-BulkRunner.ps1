@@ -25,8 +25,8 @@
 .PARAMETER TargetCredential
     PSCredential for target domain (e.g., Get-Credential 'TGT\adadmin').
 
-.PARAMETER SourceIdentity
-    Source user identifier (sAMAccountName, UPN, or DN).
+.PARAMETER CSVpath
+    Path to CSV file with list of users to migrate. Must contain a column "SourceIdentity".
 
 .PARAMETER TargetOU
     DN of OU in target domain to create user, e.g., "OU=Employees,DC=tgt,DC=contoso,DC=com".
@@ -74,12 +74,15 @@
 [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
 param(
     [string]$SourceServer="suo04ctcw005.demo.local",
-    [System.Management.Automation.PSCredential]$SourceCredential=$Cred0,
+    [Parameter(Mandatory=$true)]
+    [System.Management.Automation.PSCredential]$SourceCredential,
 
-    [string]$TargetServer="dmocd1.dmo.ctc.int.hpe.com",
-    [System.Management.Automation.PSCredential]$TargetCredential=$Cred1,
+    [string]$TargetServer="dmodc1.dmo.ctc.int.hpe.com",
+    [Parameter(Mandatory=$true)]
+    [System.Management.Automation.PSCredential]$TargetCredential,
 
-    [string]$SourceIdentity="abehat",
+    #[Parameter(Mandatory=$true)]
+    [string]$CSVpath='.\output\test-users.csv',
 
     [string]$TargetOU="OU=Users,OU=Democenter,DC=dmo,DC=ctc,DC=int,DC=hpe,DC=com",
 
@@ -94,6 +97,14 @@ param(
 
     [switch]$IncludePrivilegedGroups,
 
-    [System.Security.SecureString]$InitialPassword=(ConvertTo-SecureString "CTC12345!" -AsPlainText -Force)
+    [System.Security.SecureString]$InitialPassword=(ConvertTo-SecureString "CTC!5a7cxw1HPE" -AsPlainText -Force)
 )
 
+process{
+    Import-Csv $CSVpath | ForEach-Object {
+        $user = $_.SamAccountName
+        Write-Host "Migrating user: $user"
+        .\Migrate-AdUser-CrossForest.ps1 `
+            -SourceIdentity $user `
+    }
+}

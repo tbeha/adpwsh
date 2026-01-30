@@ -26,10 +26,10 @@ Get-ADUsersLastLogon.ps1 -Accurate -Server corp.contoso.com -ExportPath C:\temp\
 [CmdletBinding()]
 param(
     [switch]$Accurate,
-    [string]$ExportPath="c:\temp\dmo-lastlogon.csv",
-    [string]$Server="dmodc1.dmo.ctc.int.hpe.com",
+    [string]$ExportPath=".\output\adusers.csv",
+    [string]$Server="suo04ctcw005.demo.local",
     [System.Management.Automation.PSCredential]
-    $Credential = $Cred1,
+    $Credential = $Cred0,
     [string]
     $Filter = '*'
 )
