@@ -72,34 +72,29 @@
 
 [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
 param(
-    [Parameter(Mandatory=$true)]
-    [string]$SourceServer,
-    [Parameter(Mandatory=$true)]
-    [System.Management.Automation.PSCredential]$SourceCredential,
+    [string]$SourceServer="suo04ctcw005.demo.local",
+    [System.Management.Automation.PSCredential]$SourceCredential=$Cred0,
 
-    [Parameter(Mandatory=$true)]
-    [string]$TargetServer,
-    [Parameter(Mandatory=$true)]
-    [System.Management.Automation.PSCredential]$TargetCredential,
+    [string]$TargetServer="dmodc1.dmo.ctc.int.hpe.com",
+    [System.Management.Automation.PSCredential]$TargetCredential=$Cred1,
 
     [Parameter(Mandatory=$true)]
     [string]$SourceIdentity,
 
-    [Parameter(Mandatory=$true)]
-    [string]$TargetOU,
+    [string]$TargetOU="OU=Users,OU=Democenter,DC=dmo,DC=ctc,DC=int,DC=hpe,DC=com",
 
-    [string]$TargetUpnSuffix,
+    [string]$TargetUpnSuffix="dmo.ctc.int.hpe.com",
     [string]$TargetSamAccountName,
 
     [switch]$IncludeNestedGroups,
 
-    [string]$GroupMapCsv,
-    [switch]$CreateMissingGroups,
+    [string]$GroupMapCsv=".\groupMap.csv",
+    [switch]$CreateMissingGroups=$false,
     [string]$GroupCreationOU,
 
     [switch]$IncludePrivilegedGroups,
 
-    [System.Security.SecureString]$InitialPassword
+    [System.Security.SecureString]$InitialPassword=(ConvertTo-SecureString "CTC!5a7cxw1HPE" -AsPlainText -Force)
 )
 
 begin {
@@ -114,11 +109,11 @@ begin {
 
     # Default attribute set to copy (safe business/profile attributes only)
     $script:AttrsToCopy = @(
-        'givenName','sn','displayName','description',
+        'givenName','Surname','displayName','description',
         'mail','userPrincipalName','department','title',
         'telephoneNumber','mobile','ipPhone',
         'physicalDeliveryOfficeName','streetAddress','l','st','postalCode','company',
-        'employeeID','employeeNumber'
+        'employeeID','employeeNumber','EmailAddress'
     )
 
     # For safety, exclude privileged/built-in groups unless explicitly allowed
@@ -161,7 +156,7 @@ begin {
     function Get-SourceUser([string]$identity) {
         try {
             return Get-ADUser -Identity $identity -Server $SourceServer -Credential $SourceCredential `
-                -Properties MemberOf,PrimaryGroupID,$AttrsToCopy -ErrorAction Stop
+                -Properties MemberOf,PrimaryGroupID,EmailAddress,Description,Name,SID -ErrorAction Stop
         } catch {
             $usr = Get-ADUser -Filter { (SamAccountName -eq $identity) -or (UserPrincipalName -eq $identity) } `
                 -Server $SourceServer -Credential $SourceCredential `
@@ -235,15 +230,15 @@ begin {
                 Credential  = $TargetCredential
             }
             if ($GroupCreationOU) { $createParams['Path'] = $GroupCreationOU }
-            if ($PSCmdlet.ShouldProcess("Target group '$groupName'","Create")) {
-                try {
-                    New-ADGroup @createParams -ErrorAction Stop
-                    $tg = Get-ADGroup -Identity $groupName -Server $TargetServer -Credential $TargetCredential -ErrorAction Stop
-                    Write-Info "Created target group '$groupName'."
-                } catch {
-                    Write-Err "Failed to create target group '$groupName': $($_.Exception.Message)"
-                }
+            
+            try {
+                New-ADGroup @createParams -ErrorAction Stop
+                $tg = Get-ADGroup -Identity $groupName -Server $TargetServer -Credential $TargetCredential -ErrorAction Stop
+                Write-Info "Created target group '$groupName'."
+            } catch {
+                Write-Err "Failed to create target group '$groupName': $($_.Exception.Message)"
             }
+            
         }
 
         return $tg
@@ -280,11 +275,11 @@ process {
         } else {
             # Build attribute map (copy only safe attributes if they exist on source)
             $newUserParams = @{
-                Name                  = $srcUser.DisplayName
+                Name                  = $srcUser.Name
                 SamAccountName        = $TargetSamAccountName
                 UserPrincipalName     = $targetUPN
                 AccountPassword       = $InitialPassword
-                ChangePasswordAtLogon = $true
+                ChangePasswordAtLogon = $false
                 Enabled               = $false
                 Path                  = $TargetOU
                 Server                = $TargetServer
@@ -302,7 +297,6 @@ process {
                             # map common AD param names when available
                             switch ($a) {
                                 'mail'   { $newUserParams['EmailAddress'] = $val }
-                                'sn'     { $newUserParams['Surname']      = $val }
                                 default  { $newUserParams[$a] = $val }
                             }
                         }
@@ -310,18 +304,22 @@ process {
                 }
             }
 
-            if ($PSCmdlet.ShouldProcess("Target user '$TargetSamAccountName'","Create")) {
-                try {
-                    New-ADUser @newUserParams -ErrorAction Stop
-                    Write-Info "Created target user '$TargetSamAccountName'."
-                    # Optionally enable now or leave disabled until group replication completes
+            try {
+                New-ADUser @newUserParams -ErrorAction Stop
+                Write-Info "Created target user '$TargetSamAccountName'."
+                # Set the account parameters
+                # Optionally enable now or leave disabled until group replication completes
+                if ($newUserParams.Enabled -eq $true) {
+                    Write-Info "Target user '$TargetSamAccountName' created disabled. Enabling now..."
                     Enable-ADAccount -Identity $TargetSamAccountName -Server $TargetServer -Credential $TargetCredential -ErrorAction Stop
                     Write-Info "Enabled target user '$TargetSamAccountName'."
-                } catch {
-                    Write-Err "Failed to create/enable target user: $($_.Exception.Message)"
-                    return
                 }
+
+            } catch {
+                Write-Err "Failed to create/enable target user: $($_.Exception.Message)"
+                return
             }
+            
         }
 
         # Ensure we have a fresh target reference (created or pre-existing)
@@ -381,17 +379,16 @@ process {
                 continue
             }
 
-            if ($PSCmdlet.ShouldProcess("Group '$($tg.Name)'","Add member '$($tgtUser.SamAccountName)'")) {
-                try {
-                    Add-ADGroupMember -Identity $tg.DistinguishedName -Members $tgtUser.DistinguishedName `
-                        -Server $TargetServer -Credential $TargetCredential -ErrorAction Stop
-                    $added.Add($tg.Name) | Out-Null
-                    Write-Info "Added to target group: $($tg.Name)"
-                } catch {
-                    Write-Err "Failed to add '$($tgtUser.SamAccountName)' to '$($tg.Name)': $($_.Exception.Message)"
-                    $skipped.Add($tg.Name) | Out-Null
-                }
+            try {
+                Add-ADGroupMember -Identity $tg.DistinguishedName -Members $tgtUser.DistinguishedName `
+                    -Server $TargetServer -Credential $TargetCredential -ErrorAction Stop
+                $added.Add($tg.Name) | Out-Null
+                Write-Info "Added to target group: $($tg.Name)"
+            } catch {
+                Write-Err "Failed to add '$($tgtUser.SamAccountName)' to '$($tg.Name)': $($_.Exception.Message)"
+                $skipped.Add($tg.Name) | Out-Null
             }
+            
         }
 
         # Summary
