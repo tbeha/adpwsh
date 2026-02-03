@@ -70,22 +70,11 @@ function Get-phpIPAMSession {
     )
     
     try {
-<<<<<<< HEAD
-        $username = $Cred.UserName
-        $password = $Cred.GetNetworkCredential().Password
         New-PhpIpamSession -UseCredAuth `
         -PhpIpamApiUrl $Url `
         -AppID $AppId `
         -Username $Cred.UserName `
         -Password $Cred.GetNetworkCredential().Password
-=======
-        $password=$Crd.GetNetworkCredential().Password
-        $response = New-PhpIpamSession -UseCredAuth `
-        -PhpIpamApiUrl $Url `
-        -AppID $AppId `
-        -Username $Cred.UserName `
-        -Password $password
->>>>>>> 3d7218a8ba91b7879befd086802c7b143f693c17
         
     }
     catch {
