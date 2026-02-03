@@ -45,7 +45,7 @@ param(
     [string]$phpIPAMUrl = "http://suo04ctcinf7.demo.local/administration/api/",
     [string]$AppId = "DNS",
     [System.Management.Automation.PSCredential] $Credential,
-    [string]$ExportPath = "./dnsrecords.csv",
+    [string]$ExportPath = "./output/dnsrecords.csv",
     [ValidateSet('CSV', 'JSON')]
     [string]$ExportFormat = 'CSV'
 )
@@ -66,23 +66,18 @@ function Get-phpIPAMSession {
     param(
         [string]$Url,
         [string]$AppId,
-        [string]$Credential
+        [System.Management.Automation.PSCredential]$Cred
     )
     
     try {
-        $response = New-PhpIpamSession -UseCredAuth `
-        -PhpIpamApiUrl $ApiUrl `
+        $username = $Cred.UserName
+        $password = $Cred.GetNetworkCredential().Password
+        New-PhpIpamSession -UseCredAuth `
+        -PhpIpamApiUrl $Url `
         -AppID $AppId `
         -Username $Cred.UserName `
-        -Password ($Cred.GetNetworkCredential().Password)
+        -Password $Cred.GetNetworkCredential().Password
         
-        if ($response){
-            return $response
-        }
-        else {
-            Write-Error "Authentication failed: $($response.message)"
-            exit 1
-        }
     }
     catch {
         Write-Error "Authentication request failed: $_"
@@ -92,7 +87,7 @@ function Get-phpIPAMSession {
 
 # Main execution
 try {
-    # Validate parameters
+    <# Validate parameters
     if (-not $Credential) {
         Write-Error "Credential must be provided."
         exit 1
@@ -101,9 +96,10 @@ try {
     #>$Credential = Get-Credential -UserName "morpheus"
     
     # Get authentication session 
-    $response = Get-phpIPAMSession -Url $phpIPAMUrl -AppId $AppId -Credential $Credential
+    Get-phpIPAMSession -Url $phpIPAMUrl -AppId $AppId -Cred $Credential
 
     # Get DNS subnets
+    $subnets = @()
     $subnets =  Get-PhpIpamAllSubnets
 
     # Get all DNS records
