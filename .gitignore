@@ -103,3 +103,6 @@ ad_groups_export.csv
 adgroups.csv
 output/adusers.csv
 output/test-users.csv
+output/ADusers.xlsx
+output/CTC-AD-Groups.xlsx
+output/ad-lastlogon.xlsx
