@@ -70,6 +70,7 @@ function Get-phpIPAMSession {
     )
     
     try {
+<<<<<<< HEAD
         $username = $Cred.UserName
         $password = $Cred.GetNetworkCredential().Password
         New-PhpIpamSession -UseCredAuth `
@@ -77,6 +78,14 @@ function Get-phpIPAMSession {
         -AppID $AppId `
         -Username $Cred.UserName `
         -Password $Cred.GetNetworkCredential().Password
+=======
+        $password=$Crd.GetNetworkCredential().Password
+        $response = New-PhpIpamSession -UseCredAuth `
+        -PhpIpamApiUrl $Url `
+        -AppID $AppId `
+        -Username $Cred.UserName `
+        -Password $password
+>>>>>>> 3d7218a8ba91b7879befd086802c7b143f693c17
         
     }
     catch {
@@ -93,8 +102,15 @@ try {
         exit 1
     }
  
-    #>$Credential = Get-Credential -UserName "morpheus"
+    $Credential = Get-Credential -UserName "morpheus"
     
+    # Convert plain text password to SecureString
+    $securePassword = ConvertTo-SecureString "We95sms!!" -AsPlainText -Force
+    # Create the PSCredential object
+    $credential = New-Object System.Management.Automation.PSCredential ("morpheus", $securePassword)
+    #>
+    $Credential = Get-Credential -UserName "morpheus"
+
     # Get authentication session 
     Get-phpIPAMSession -Url $phpIPAMUrl -AppId $AppId -Cred $Credential
 
