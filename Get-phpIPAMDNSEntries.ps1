@@ -42,7 +42,7 @@ Export format: 'CSV' or 'JSON'. Default is 'JSON'.
 
 [CmdletBinding()]
 param(
-    [string]$phpIPAMUrl = "http://suo04ctcinf7.demo.local/administration/api/",
+    [string]$phpIPAMUrl = "http://suo04ctcinf7.demo.local/api/",
     [string]$AppId = "DNS",
     [System.Management.Automation.PSCredential] $Credential,
     [string]$ExportPath = "./output/dnsrecords.csv",
@@ -70,12 +70,18 @@ function Get-phpIPAMSession {
     )
     
     try {
-        New-PhpIpamSession -UseCredAuth `
+        $response = New-PhpIpamSession -UseCredAuth `
         -PhpIpamApiUrl $Url `
         -AppID $AppId `
         -Username $Cred.UserName `
         -Password $Cred.GetNetworkCredential().Password
-        
+        if( $response){
+           Write-Host "Authentication successful."
+        } 
+        else {
+            Write-Error "Authentication failed. No token received."
+            exit 1
+        }   
     }
     catch {
         Write-Error "Authentication request failed: $_"
