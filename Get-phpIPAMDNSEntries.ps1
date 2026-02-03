@@ -66,15 +66,16 @@ function Get-phpIPAMSession {
     param(
         [string]$Url,
         [string]$AppId,
-        [string]$Credential
+        [System.Management.Automation.PSCredential]$Cred
     )
     
     try {
+        $password=$Crd.GetNetworkCredential().Password
         $response = New-PhpIpamSession -UseCredAuth `
-        -PhpIpamApiUrl $ApiUrl `
+        -PhpIpamApiUrl $Url `
         -AppID $AppId `
         -Username $Cred.UserName `
-        -Password ($Cred.GetNetworkCredential().Password)
+        -Password $password
         
         if ($response){
             return $response
@@ -92,14 +93,21 @@ function Get-phpIPAMSession {
 
 # Main execution
 try {
-    # Validate parameters
+    <# Validate parameters
     if (-not $Credential) {
         Write-Error "Credential must be provided."
         exit 1
     }
  
-    #>$Credential = Get-Credential -UserName "morpheus"
+    $Credential = Get-Credential -UserName "morpheus"
     
+    # Convert plain text password to SecureString
+    $securePassword = ConvertTo-SecureString "We95sms!!" -AsPlainText -Force
+    # Create the PSCredential object
+    $credential = New-Object System.Management.Automation.PSCredential ("morpheus", $securePassword)
+    #>
+    $Credential = Get-Credential -UserName "morpheus"
+
     # Get authentication session 
     $response = Get-phpIPAMSession -Url $phpIPAMUrl -AppId $AppId -Credential $Credential
 
