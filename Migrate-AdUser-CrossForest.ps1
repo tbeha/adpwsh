@@ -54,6 +54,9 @@
 .PARAMETER InitialPassword
     SecureString for the new user’s initial password. If omitted, you’ll be prompted.
 
+.PARAMETER Email
+    The usess email address   
+
 .EXAMPLE
     $srcCred = Get-Credential 'SRC\adadmin'
     $tgtCred = Get-Credential 'TGT\adadmin'
@@ -66,6 +69,7 @@
       -TargetUpnSuffix 'tgt.contoso.com' `
       -IncludeNestedGroups `
       -GroupMapCsv '.\groupMap.csv' `
+      -Email 'email@local.com' `
       -WhatIf
 
 #>
@@ -91,6 +95,7 @@ param(
     [string]$GroupMapCsv=".\groupMap.csv",
     [switch]$CreateMissingGroups=$false,
     [string]$GroupCreationOU,
+    [string]$Email,
 
     [switch]$IncludePrivilegedGroups,
 
@@ -284,6 +289,7 @@ process {
                 Path                  = $TargetOU
                 Server                = $TargetServer
                 Credential            = $TargetCredential
+                EmailAddress          = $Email
             }
 
             foreach ($a in $AttrsToCopy) {
@@ -296,7 +302,7 @@ process {
                         default {
                             # map common AD param names when available
                             switch ($a) {
-                                'mail'   { $newUserParams['EmailAddress'] = $val }
+                                'mail'   { $newUserParams['EmailAddress'] = $Email }
                                 default  { $newUserParams[$a] = $val }
                             }
                         }

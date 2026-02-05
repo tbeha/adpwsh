@@ -77,7 +77,7 @@ param(
     [Parameter(Mandatory=$true)]
     [System.Management.Automation.PSCredential]$SourceCredential,
 
-    [string]$TargetServer="dmodc1.dmo.ctc.int.hpe.com",
+    [string]$TargetServer="dmodc1.dmo.ctc.int.hpe.com",g
     [Parameter(Mandatory=$true)]
     [System.Management.Automation.PSCredential]$TargetCredential,
 
@@ -97,7 +97,7 @@ param(
 
     [switch]$IncludePrivilegedGroups,
 
-    [System.Security.SecureString]$InitialPassword=(ConvertTo-SecureString "CTC!5a7cxw1HPE" -AsPlainText -Force)
+    [System.Security.SecureString]$InitialPassword=(ConvertTo-SecureString "HPE.ctc.2026!bbn" -AsPlainText -Force)
 )
 
 process{
