@@ -106,5 +106,6 @@ process{
         Write-Host "Migrating user: $user"
         .\Migrate-AdUser-CrossForest.ps1 `
             -SourceIdentity $user `
+            -Email $_.Email
     }
 }
