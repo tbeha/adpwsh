@@ -302,7 +302,6 @@ process {
                         default {
                             # map common AD param names when available
                             switch ($a) {
-                                'mail'   { $newUserParams['EmailAddress'] = $Email }
                                 default  { $newUserParams[$a] = $val }
                             }
                         }
