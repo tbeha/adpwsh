@@ -77,12 +77,12 @@ param(
     [Parameter(Mandatory=$true)]
     [System.Management.Automation.PSCredential]$SourceCredential,
 
-    [string]$TargetServer="dmodc1.dmo.ctc.int.hpe.com",g
+    [string]$TargetServer="dmodc1.dmo.ctc.int.hpe.com",
     [Parameter(Mandatory=$true)]
     [System.Management.Automation.PSCredential]$TargetCredential,
 
     #[Parameter(Mandatory=$true)]
-    [string]$CSVpath='.\output\test-users.csv',
+    [string]$CSVpath='.\output\adusers.csv',
 
     [string]$TargetOU="OU=Users,OU=Democenter,DC=dmo,DC=ctc,DC=int,DC=hpe,DC=com",
 
@@ -106,6 +106,14 @@ process{
         Write-Host "Migrating user: $user"
         .\Migrate-AdUser-CrossForest.ps1 `
             -SourceIdentity $user `
-            -Email $_.Email
+            -Email $_.Email `
+            -SourceCredential $SourceCredential `
+            -TargetCredential $TargetCredential `
+            -InitialPassword $InitialPassword `
+            -TargetOU $TargetOU 
+            -TargetUpnSuffix $TargetUpnSuffix `
+            -TargetSamAccountName $TargetSamAccountName `
+            -TargetServer $TargetServer `
+            -SourceServer $SourceServer  
     }
 }

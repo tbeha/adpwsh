@@ -77,29 +77,29 @@
 [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
 param(
     [string]$SourceServer="suo04ctcw005.demo.local",
-    [System.Management.Automation.PSCredential]$SourceCredential=$Cred0,
+    [System.Management.Automation.PSCredential]$SourceCredential,
 
     [string]$TargetServer="dmodc1.dmo.ctc.int.hpe.com",
-    [System.Management.Automation.PSCredential]$TargetCredential=$Cred1,
+    [System.Management.Automation.PSCredential]$TargetCredential,
 
-    [Parameter(Mandatory=$true)]
+    #[Parameter(Mandatory=$true)]
     [string]$SourceIdentity,
 
-    [string]$TargetOU="OU=Users,OU=Democenter,DC=dmo,DC=ctc,DC=int,DC=hpe,DC=com",
+    [string]$TargetOU, #="OU=Users,OU=Democenter,DC=dmo,DC=ctc,DC=int,DC=hpe,DC=com",
 
-    [string]$TargetUpnSuffix="dmo.ctc.int.hpe.com",
+    [string]$TargetUpnSuffix, #="dmo.ctc.int.hpe.com",
     [string]$TargetSamAccountName,
 
     [switch]$IncludeNestedGroups,
 
-    [string]$GroupMapCsv=".\groupMap.csv",
+    [string]$GroupMapCsv =".\groupMap.csv",
     [switch]$CreateMissingGroups=$false,
     [string]$GroupCreationOU,
     [string]$Email,
 
     [switch]$IncludePrivilegedGroups,
 
-    [System.Security.SecureString]$InitialPassword=(ConvertTo-SecureString "CTC!5a7cxw1HPE" -AsPlainText -Force)
+    [System.Security.SecureString]$InitialPassword #=(ConvertTo-SecureString "HPE.ctc.2026!bbn" -AsPlainText -Force)
 )
 
 begin {
@@ -114,11 +114,7 @@ begin {
 
     # Default attribute set to copy (safe business/profile attributes only)
     $script:AttrsToCopy = @(
-        'givenName','Surname','displayName','description',
-        'mail','userPrincipalName','department','title',
-        'telephoneNumber','mobile','ipPhone',
-        'physicalDeliveryOfficeName','streetAddress','l','st','postalCode','company',
-        'employeeID','employeeNumber','EmailAddress'
+        'givenName','Surname','displayName','description'
     )
 
     # For safety, exclude privileged/built-in groups unless explicitly allowed
