@@ -106,3 +106,4 @@ output/test-users.csv
 output/ADusers.xlsx
 output/CTC-AD-Groups.xlsx
 output/ad-lastlogon.xlsx
+output/dns_dmo.csv
