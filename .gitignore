@@ -106,7 +106,10 @@ output/test-users.csv
 output/ADusers.xlsx
 output/CTC-AD-Groups.xlsx
 output/ad-lastlogon.xlsx
+<<<<<<< HEAD
 output/dnscleaned.xlsx
 output/dnscleaned.csv
 output/dns_dmo.csv
+=======
+>>>>>>> 74201d03de614fa7db84848dc3aed7ceb6f1bae2
 output/dns_dmo.csv

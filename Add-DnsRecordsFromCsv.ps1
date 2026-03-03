@@ -24,14 +24,14 @@
 
 [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Low')]
 param(
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $false)]
     [ValidateScript({ Test-Path $_ })]
-    [string]$CsvPath,
+    [string]$CsvPath = ".\output\dns_dmo.csv",
 
     [Parameter(Mandatory = $false)]
-    [string]$DnsServer = 'localhost',
+    [string]$DnsServer = "dmodc1.dmo.ctc.int.hpe.com",
 
-    [switch]$CreatePtrWithA
+    [switch]$CreatePtrWithA = $false
 )
 
 function Test-Module {
@@ -126,8 +126,8 @@ $results = New-Object System.Collections.Generic.List[PSObject]
 foreach ($row in $rows) {
     # Normalize inputs
     $Hostname        = $row.Hostname.Trim()
-    $IPAddress       = $row.IPAddress.Trim()
-    $ZoneName        = $row.ZoneName.Trim()
+    $IPAddress       = $row.ip.Trim()
+    $ZoneName        = "dmo.ctc.int.hpe.com" #$row.ZoneName.Trim()
     $ReverseZoneName = $row.PSObject.Properties.Match('ReverseZoneName').Count -gt 0 -and $row.ReverseZoneName ? $row.ReverseZoneName.Trim() : $null
     $TTL             = $row.PSObject.Properties.Match('TTL').Count -gt 0 -and $row.TTL ? $row.TTL.Trim() : $null
 
@@ -201,7 +201,7 @@ foreach ($row in $rows) {
 
         if ($PSCmdlet.ShouldProcess("$fqdn (A $IPAddress) on $DnsServer in zone $ZoneName", "Add A record")) {
             try {
-                Add-DnsServerResourceRecordA @params | Out-Null
+                Add-DnsServerResourceRecordA @params -CreatePtr | Out-Null
                 $aAction = 'Created'
             } catch {
                 Write-Warning "Failed to create A record for $fqdn -> $IPAddress : $($_.Exception.Message)"
