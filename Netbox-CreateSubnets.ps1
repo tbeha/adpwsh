@@ -123,6 +123,7 @@ try {
             $existing = Get-NBIPAMPrefix | Where-Object { $_.prefix -eq $prefix}
             if( -not $existing ){
                 Write-Host "Prefix $prefix does not exist, creating ..."
+                New-NBIPAMVLAN -vid $vlan -name $vlan -description $net.description 
                 New-NBIPAMPrefix -prefix $prefix -status "active" -description $net.description
             } else {
                 Write-Host "Prefix already exists: $($existing.prefix)"
