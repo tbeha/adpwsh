@@ -49,6 +49,7 @@ param(
     [string]$netboxTokenPath = '.\netbox.token'
 )
 
+<#
 $subnets = @(
     '10.1.1.'
     '10.1.10.'
@@ -82,6 +83,12 @@ $subnets = @(
     '10.1.248.'
     '10.1.255.'
     )
+#>
+$subnets = @(
+    '10.1.1.'
+    '10.1.85.'
+    '10.1.86.'
+)
 
 # Use PowerNetBox module (recommended)
 # Instead of raw API:  https://github.com/ctrl-alt-automate/PowerNetbox
