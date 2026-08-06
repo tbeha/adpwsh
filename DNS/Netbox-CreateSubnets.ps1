@@ -45,7 +45,7 @@ param(
     [string]$phpIPAMUrl = "http://suo04ctcinf7.demo.local/api/",
     [string]$AppId = "DNS",
     [string]$phpIpamToken = '.\phpIPAM.token',
-    [string]$netboxBaseUrl = "http://10.1.44.18:8080/api",
+    [string]$netboxBaseUrl = "https://admtb1008.adm.ctc.int.hpe.com/api",
     [string]$netboxTokenPath = '.\netbox.token'
 )
 

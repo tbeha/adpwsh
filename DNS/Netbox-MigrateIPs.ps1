@@ -44,12 +44,17 @@ Export format: 'CSV' or 'JSON'. Default is 'JSON'.
 param(
     [string]$phpIPAMUrl = "http://suo04ctcinf7.demo.local/api/",
     [string]$AppId = "DNS",
-    [string]$phpIpamToken = '.\phpIPAM.token',
-    [string]$netboxBaseUrl = "http://10.1.44.18:8080/api",
-    [string]$netboxTokenPath = '.\netbox.token'
+    [string]$phpIpamToken = 'C:\Users\thomasb\Documents\adpwsh\DNS\phpIPAM.token',
+    [string]$netboxBaseUrl = "https://admtb1008.adm.ctc.int.hpe.com/api",
+    [string]$netboxTokenPath = 'C:\Users\thomasb\Documents\adpwsh\DNS\netbox.token'
 )
 
 <#
+$subnets = @(
+    '10.1.35.'     10.1.35.11 hostname not conforming to naming convention
+    '10.1.39.'     10.1.39.202 hostname not conforming to naming convention 
+    #>
+    
 $subnets = @(
     '10.1.1.'
     '10.1.10.'
@@ -60,9 +65,11 @@ $subnets = @(
     '10.1.25.'
     '10.1.26.'
     '10.1.29.'
+    '10.1.36.'
     '10.1.40.'
     '10.1.41.'
     '10.1.42.'
+    '10.1.43.'
     '10.1.44.'
     '10.1.45.'
     '10.1.46.'
@@ -71,6 +78,8 @@ $subnets = @(
     '10.1.80.'
     '10.1.83.'
     '10.1.84.'
+    '10.1.85.'
+    '10.1.86.'
     '10.1.90.'
     '10.1.121.'
     '10.1.122.'
@@ -83,12 +92,8 @@ $subnets = @(
     '10.1.248.'
     '10.1.255.'
     )
-#>
-$subnets = @(
-    '10.1.1.'
-    '10.1.85.'
-    '10.1.86.'
-)
+
+
 
 # Use PowerNetBox module (recommended)
 # Instead of raw API:  https://github.com/ctrl-alt-automate/PowerNetbox
@@ -163,7 +168,7 @@ try {
                 if($dns.owner -eq $null){
                      # No existing owner, just create the IP address without owner
                     Write-Host "$($dns.ip) does not exist yet, creating ..."
-                    New-NBIPAMAddress -Address ($dns.ip + "/24") -Dns_name $dns.hostname -Description $dns.description                   
+                    $result = New-NBIPAMAddress -Address ($dns.ip + "/24") -Dns_name $dns.hostname -Description $dns.description                   
                 } else {
                     # Get Owner ID
                     $owner = Get-NBOwner -Name $dns.owner
@@ -176,7 +181,8 @@ try {
                     $result = New-NBIPAMAddress -Address ($dns.ip + "/24") -Dns_name $dns.hostname -Description $dns.description  -Owner $owner.id                                        
                 }      
             } else {
-                Write-Host "IP Address already exists: $($dns.ip)"
+                Write-Host "IP Address already exists: $($dns.ip) - updating the DNS record ..."    
+                $result = Set-NBIPAMAddress -Address ($dns.ip + "/24") -Dns_name $dns.hostname -Description $dns.description -Id $existing.id 
             }
         }
     }

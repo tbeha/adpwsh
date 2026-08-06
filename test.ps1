@@ -13,3 +13,8 @@ else {
     Write-Warning "File not found: $path"
 }
 
+foreach ($i in 140..200){
+    $zoneName = "$i.1.10.in-addr.arpa"
+    Write-Host "Deleting reverse lookup zone: $zoneName"
+}
+

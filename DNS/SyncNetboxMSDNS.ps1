@@ -39,7 +39,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [string]$NetBoxUrl,
+    [string]$NetBoxUrl = "http://10.1.44.18:8080/api",
 
     [Parameter(Mandatory = $true)]
     [string]$NetBoxToken,
