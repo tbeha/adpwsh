@@ -159,7 +159,7 @@ try {
         $dnsRecords = @()
         $dnsRecords = Get-PhpIpamAddresses | Where-Object { $_.ip.StartsWith($sub)}
         # Output results 
-        Write-Host "Retrieved $($dnsRecords.Count) DNS records in subnet $($sub)."
+        # Write-Host "Retrieved $($dnsRecords.Count) DNS records in subnet $($sub)."
         foreach ($dns in $dnsRecords) {
             # Check if IP Address already exists in Netbox
             $existing = Get-NBIPAMAddress -Address $dns.ip

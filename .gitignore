@@ -115,3 +115,8 @@ output/dns_dmo.csv
 output/dns_dmo.csv
 netbox.token
 phpIPAM.token
+notes.txt
+DNS/netbox_ipam_addresses.json
+DNS/netbox_ipam_prefixes.json
+.vscode/launch.json
+DNS/NetBox-DNS-Sync.log

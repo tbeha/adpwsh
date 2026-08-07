@@ -32,7 +32,7 @@ param(
     $Credential=$Cred,
     [string]$Identity = 'DemoAdmins',
     [string]$netboxBaseUrl = "https://admtb1008.adm.ctc.int.hpe.com/api",
-    [string]$netboxTokenPath = '..\DNS\netbox.token',
+    [string]$netboxTokenPath = 'C:\Users\thomasb\Documents\adpwsh\DNS\netbox.token',
     [securestring]$Password 
 )
 
@@ -90,7 +90,7 @@ try{
         $getUserParams.Identity = $m.SamAccountName
         $user = Get-ADUser @getUserParams
         
-        $NewUser = New-NBUser -username $user.SamAccountName -First_Name $user.GivenName -Last_Name $user.Surname -Password $Password -Is_Active $true -Is_Superuser $false -Groups @(2)
+        $NewUser = New-NBUser -username $user.SamAccountName -First_Name $user.GivenName -Last_Name $user.Surname -Password $Password -Is_Active $true -Is_Superuser $false -Group 2
         Write-Output "Created user $($NewUser.Username) in Netbox."
     }
 
