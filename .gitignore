@@ -121,3 +121,5 @@ DNS/netbox_ipam_prefixes.json
 .vscode/launch.json
 DNS/NetBox-DNS-Sync.log
 NetBox-DNS-Sync.log
+Logs/dnsmismatches-2026-08-10_19-51-18.json
+Logs/NetBox-DNS-Sync-2026-08-10_19-51-18.log

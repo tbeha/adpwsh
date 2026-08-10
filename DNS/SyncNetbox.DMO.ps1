@@ -28,13 +28,11 @@ param(
     [string]$DnsServer = "dmodc2.dmo.ctc.int.hpe.com",
     [string[]]$ForwardZones = @("dmo.ctc.int.hpe.com"),
     [string]$NetBoxStatus = "active",
-    [int]$PageLimit = 1000,
-    [Boolean]$UpdateExisting = $true,
-    [Boolean]$RemoveStaleRecords = $true,
-    [Boolean]$WhatIfMode = $true,
-    [string]$LogPath = ".\NetBox-DNS-Sync.log",
-    [string]$CsvReportPath = ".\NetBox-DNS-Sync-Report.csv"
+    [string]$LogPath = "C:\Users\thomasb\Documents\adpwsh\Logs\NetBox-DNS-Sync",
+    [string]$CsvReportPath = "C:\Users\thomasb\Documents\adpwsh\Logs\NetBox-DNS-Sync-Report",
+    [string]$dnsMismatches = "C:\Users\thomasb\Documents\adpwsh\Logs\dnsmismatches"
 )
+
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
@@ -42,7 +40,10 @@ $ErrorActionPreference = "Stop"
 # ---------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------
-
+$dt = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
+$LogPath = "$LogPath-$dt.log"
+$CsvReportPath = "$CsvReportPath-$dt.csv"  
+$dnsMismatches = "$dnsMismatches-$dt.json"
 $script:Report = New-Object System.Collections.Generic.List[object]
 
 function Write-Log {
@@ -173,8 +174,35 @@ function Get-IPAddressWithoutPrefix {
     return ($Address -split "/")[0]
 }
 
+function Get-NBDomainIPAddresses{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Domain
+    )
+
+    # open the connection to the Netbox
+    Get-NetboxSession    
+    Write-Log -Level INFO -Message "Connected to NetBox: $(Get-NBVersion)"
+
+    # Get the list of Subnets for the specified domain from Netbox
+    $addresses = Get-NBIPAMAddress -All -ErrorAction Stop
+    $subnets = Get-NBIPAMPrefix -All -ErrorAction Stop | Where-Object { $_.tags.name -contains $Domain }
+    $netboxAddresses = @()
+    foreach($sub in $subnets) {
+        $subnetFilter = Get-SubnetFilter -cidr $sub.prefix
+        $netboxAddresses += $addresses | Where-Object { $_.address -like "$subnetFilter*"  -and $_.status.value -eq 'active'}    
+    }
+    if($netboxAddresses){
+        Write-Log -Level INFO -Message "Retrieved $($netboxAddresses.Count) IP addresses from NetBox for domain '$Domain'."
+    }
+    else {
+        Write-Log -Level WARN -Message "No IP addresses found in NetBox for domain '$Domain'."
+    }
+    return $netboxAddresses
+}
+
 # ---------------------------------------------------------------------
-# Execute
+# Execute Main
 # ---------------------------------------------------------------------
 
 try{
@@ -183,51 +211,50 @@ try{
     Write-Log -Level INFO -Message "NetBox URL: $NetBoxBaseUrl"
     Write-Log -Level INFO -Message "DNS server: $DnsServer"
     Write-Log -Level INFO -Message "Forward zones: $($ForwardZones -join ', ')"
-    Write-Log -Level INFO -Message "WhatIf mode: $WhatIfMode"
-    Write-Log -Level INFO -Message "Update existing: $UpdateExisting"
-    Write-Log -Level INFO -Message "Create PTR: $CreatePtr"
 
     Test-Prerequisites
 
     # get the DNS records from the DNS Server
-    $dnsRecords = Get-DNSServerResourceRecord -ComputerName $DnsServer -ZoneName $ForwardZones[0] -ErrorAction Stop
+    $dnsRecords = [System.Collections.ArrayList](Get-DNSServerResourceRecord -ComputerName $DnsServer -ZoneName $ForwardZones[0] -RRType A -ErrorAction Stop)    
 
-    # open the connection to the Netbox
-    Get-NetboxSession    
-    Write-Log -Level INFO -Message "Connected to NetBox: $(Get-NBVersion)"
+    # Get the Netbox IP Addresses for the specified domain
+    $desiredAddresses = Get-NBDomainIPAddresses -Domain $ForwardZones[0]
 
-    # Get the list of Subnets for the specified domain from Netbox
-    $addresses = Get-NBIPAMAddress -All -ErrorAction Stop
-    $subnets = Get-NBIPAMPrefix -All -ErrorAction Stop | Where-Object { $_.tags.name -contains $ForwardZones[0] }
-    $netboxAddresses = @()
-    foreach($sub in $subnets) {
-        $subnetFilter = Get-SubnetFilter -cidr $sub.prefix
-        $netboxAddresses += $addresses | Where-Object { $_.address -like "$subnetFilter*" }    
-    }
-
+    
     # Process each desired DNS record
-    foreach ($ipObj in $netboxAddresses) {
+    foreach ($ipObj in $desiredAddresses) {
+        # Remove the prefix from the IP address for comparison
+        $ipAddress = Get-IPAddressWithoutPrefix -Address $ipObj.address
         # test if IP addess is registered in the DNS server
-        $existingRecord = $dnsRecords | Where-Object { $_.RecordType -eq "A" -and $_.RecordData.IPv4Address -eq $ipObj.address }
+        $existingRecord = $dnsRecords | Where-Object { $_.RecordData.IPv4Address -eq $ipAddress }
         if($existingRecord) {
             Write-Log -Level INFO -Message "DNS record for IP $($ipObj.address) already exists in DNS server."
+            # Remove domain suffix from the existing record's hostname for comparison
+            #$existingHostname = $existingRecord.HostName -replace "\.$($ForwardZones[0])$", ""
+            $dnsHostname = $existingRecord.HostName -replace '\..*',''
+            $nbHostname = $ipObj.dns_name -replace '\..*',''
             # check if the existing record matches the NetBox dns_name
-            if($existingRecord.HostName -ne $ipObj.dns_name) { 
-                Write-Log -Level INFO -Message "DNS record for IP $($ipObj.address) has a different hostname. Updating..."
-                # Here you would add the logic to update the DNS record
-
+            if($dnsHostname -ne $nbHostname) { 
+                Write-Log -Level INFO -Message "Hostname Mismatch for IP $($ipObj.address): $($dnsHostname) (DNS) vs $($nbHostname) (NetBox). Updating..."
+                "Hostname Mismatch for IP $($ipObj.address): $dnsHostname (DNS) vs $($ipObj.dns_name) (NetBox)." | Out-File -Append $dnsMismatches
+                "DNS Record: $dnsHostname, NetBox Record: $($ipObj.dns_name)" | Out-File -Append $dnsMismatches
             }
             else {
-                Write-Log -Level INFO -Message "DNS record for IP $($ipObj.address) matches NetBox. No action needed."
+                Write-Log -Level INFO -Message "DNS record for IP $($ipObj.address) matches NetBox. No action needed"
             }
-            $dnsRecords.Remove($existingRecord) # Remove from the list to track stale records
+            # Remove the existing record from the list to avoid processing it again
+            foreach ($record in $existingRecord) {
+                $dnsRecords.Remove($record)
+                Write-Log -Level INFO -Message "Removed record: $($record.HostName) - $($record.RecordData.IPv4Address). $($dnsRecords.Count) records remaining after removal."
+            }
         }
         else {
             Write-Log -Level INFO -Message "DNS record for IP $($ipObj.address) does not exist. Creating..."
-            # Here you would add the logic to create the DNS record
-            #$result = Add-DnsServerResourceRecordA -ComputerName $DnsServer -ZoneName $ForwardZones[0] -CreatePtr -IPAddress $ipObj.address -HostName $ipObj.dns_name -ErrorAction Stop
-            #Write-Log -Level INFO -Message "Created DNS record: $($result.HostName) -> $($result.RecordData.IPv4Address)"
         }   
+    }
+    Write-Log -Level INFO -Message "Synchronization complete. $($dnsRecords.Count) records remain in DNS that are not in NetBox."
+    foreach ($record in $dnsRecords) {
+        Write-Log -Level INFO -Message "Stale DNS record: $($record.HostName)"
     }
 }
 catch {
