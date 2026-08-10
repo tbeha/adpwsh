@@ -2,16 +2,27 @@
 [CmdletBinding()]
 param(
     [string]$netboxBaseUrl = "https://admtb1008.adm.ctc.int.hpe.com/api",
-    [string]$netboxTokenPath = 'C:\Users\thomasb\Documents\adpwsh\DNS\netbox.token'
+    [string]$netboxToken = 'C:\Users\thomasb\Documents\adpwsh\DNS\netbox.token',
+    [string]$DnsServer = "dmodc2.dmo.ctc.int.hpe.com",
+    [string[]]$ForwardZones = @("dmo.ctc.int.hpe.com"),
+    [string]$NetBoxStatus = "active",
+    [int]$PageLimit = 1000,
+    [Boolean]$CreatePtr = $true,
+    [Boolean]$UpdateExisting = $true,
+    [Boolean]$RemoveStaleRecords = $true,
+    [Boolean]$WhatIfMode = $true,
+    [string]$LogPath = ".\NetBox-DNS-Sync.log",
+    [string]$CsvReportPath = ".\NetBox-DNS-Sync-Report.csv"
 )
 
-# Use PowerNetBox module (recommended)
-# Instead of raw API:  https://github.com/ctrl-alt-automate/PowerNetbox
 
+# Iomport PowerShell modules
+Import-Module DnsServer -ErrorAction Stop
 Import-Module PowerNetbox
+
 function Get-NetboxSession{
 
-    $secureToken = Get-Content $netboxTokenPath -Raw | ConvertTo-SecureString -AsPlainText -Force
+    $secureToken = Get-Content $netboxToken -Raw | ConvertTo-SecureString -AsPlainText -Force
     $nbcred = [pscredential]::new('admin', $securetoken)
     Connect-NBApi -Uri $netboxBaseUrl -Credential $nbcred -SkipCertificateCheck
 
@@ -34,25 +45,27 @@ function Get-SubnetFilter {
     return $wildcard
 }
 
+
+
+
 # Main execution
 try {
 
     # open the connection to the Netbox
-    Get-NetboxSession
+    Get-NetboxSession    
+    Write-Log -Level INFO -Message "Connected to NetBox: $(Get-NBVersion)"
 
-    Get-NBversion | Write-Host
+    # Get the list of Subnets for the specified domain from Netbox
 
-    $subnets = Get-NBIPAMPrefix -All -ErrorAction Stop
     $addresses = Get-NBIPAMAddress -All -ErrorAction Stop
-    Write-Host "Successfully retrieved $($subnets.Count) IP prefixes from NetBox and saved to netbox_ipam_prefixes.json"
-    foreach ($prefix in $subnets) {
-        Write-Host "Retrieve IP Addresses for Subnet: $($prefix.prefix), Tags: $($prefix.tags.name)"
-        $filter =   Get-SubnetFilter -cidr $prefix.prefix
-        $subnetsAddresses = $addresses | Where-Object { $_.address -like "$filter*" }
-        foreach ($address in $subnetsAddresses) {
-            Write-Host "IP Address: $($address.address), DNS Name: $($address.dns_name), Status: $($address.status.value), Tags: $($prefix.tags.name)"
-        }
+    $subnets = Get-NBIPAMPrefix -All -ErrorAction Stop | Where-Object { $_.tags.name -contains $ForwardZones[0] }
+    $desiredAddresses = @()
+    foreach($sub in $subnets) {
+        $subnetFilter = Get-SubnetFilter -cidr $sub.prefix
+        #$addresses = Get-NBIPAMAddress -All -ErrorAction Stop | Where-Object { $_.address -like "$subnetFilter*" }
+        $desiredAddresses += $addresses | Where-Object { $_.address -like "$subnetFilter*" }    
     }
+
 }
 catch {
     Write-Error "An error occurred: $_"

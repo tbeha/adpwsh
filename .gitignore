@@ -120,3 +120,4 @@ DNS/netbox_ipam_addresses.json
 DNS/netbox_ipam_prefixes.json
 .vscode/launch.json
 DNS/NetBox-DNS-Sync.log
+NetBox-DNS-Sync.log
