@@ -26,11 +26,9 @@ param(
     [string]$netboxBaseUrl = "https://admtb1008.adm.ctc.int.hpe.com/api",
     [string]$netboxToken = 'C:\Users\thomasb\Documents\adpwsh\DNS\netbox.token',
     [string]$DnsServer = "dmodc2.dmo.ctc.int.hpe.com",
-    [string[]]$ForwardZones = @("dmo.ctc.int.hpe.com"),
+    [string]$ForwardZone = "dmo.ctc.int.hpe.com",
     [string]$NetBoxStatus = "active",
-    [string]$LogPath = "C:\Users\thomasb\Documents\adpwsh\Logs\NetBox-DNS-Sync",
-    [string]$CsvReportPath = "C:\Users\thomasb\Documents\adpwsh\Logs\NetBox-DNS-Sync-Report",
-    [string]$dnsMismatches = "C:\Users\thomasb\Documents\adpwsh\Logs\dnsmismatches"
+    [string]$Path = "C:\Users\thomasb\Documents\adpwsh\Logs\NetBox-DNS-Sync"
 )
 
 
@@ -41,9 +39,9 @@ $ErrorActionPreference = "Stop"
 # Logging
 # ---------------------------------------------------------------------
 $dt = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
-$LogPath = "$LogPath-$dt.log"
-$CsvReportPath = "$CsvReportPath-$dt.csv"  
-$dnsMismatches = "$dnsMismatches-$dt.json"
+$LogPath = "$Path-$dt.log"
+$CsvReportPath = "$Path-$dt.csv"  
+
 $script:Report = New-Object System.Collections.Generic.List[object]
 
 function Write-Log {
@@ -63,6 +61,30 @@ function Write-Log {
 
     try {
         Add-Content -Path $LogPath -Value $line -Encoding UTF8
+    }
+    catch {
+        Write-Warning "Unable to write to log file '$LogPath': $($_.Exception.Message)"
+    }
+}
+
+function Write-Csv-Log {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("CREATE","UPDATE","DELETE","MISMATCH","SKIP")]
+        [string]$Level,
+        [Parameter(Mandatory = $true)] 
+        [string]$IPaddress,
+        [Parameter(Mandatory = $true)] 
+        [string]$Netbox,
+        [Parameter(Mandatory = $true)] 
+        [string]$Dns
+    )
+
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $line = "{0}; {1}; {2}; {3}; {4}" -f $timestamp, $Level, $IPaddress, $Netbox, $Dns
+
+    try {
+        Add-Content -Path $CsvReportPath -Value $line -Encoding UTF8
     }
     catch {
         Write-Warning "Unable to write to log file '$LogPath': $($_.Exception.Message)"
@@ -114,15 +136,15 @@ function Test-Prerequisites {
         throw "Unable to query DNS server '$DnsServer'. Error: $($_.Exception.Message)"
     }
 
-    foreach ($zone in $ForwardZones) {
-        try {
-            $null = Get-DnsServerZone -ComputerName $DnsServer -Name $zone -ErrorAction Stop
-            Write-Log -Level INFO -Message "Validated DNS zone '$zone' on '$DnsServer'"
-        }
-        catch {
-            throw "DNS zone '$zone' not found or not accessible on '$DnsServer'. Error: $($_.Exception.Message)"
-        }
+
+    try {
+        $null = Get-DnsServerZone -ComputerName $DnsServer -Name $ForwardZone -ErrorAction Stop
+        Write-Log -Level INFO -Message "Validated DNS zone '$ForwardZone' on '$DnsServer'"
     }
+    catch {
+        throw "DNS zone '$ForwardZone' not found or not accessible on '$DnsServer'. Error: $($_.Exception.Message)"
+    }
+
 
     $dnsModule = Get-Module -ListAvailable -Name PowerNetbox
 
@@ -201,60 +223,102 @@ function Get-NBDomainIPAddresses{
     return $netboxAddresses
 }
 
+function Get-Hostname{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Fqdn
+    )
+    $parts = $Fqdn -split '\.', 2
+    $hostname = $parts[0]
+
+    return $hostname
+}
+
 # ---------------------------------------------------------------------
 # Execute Main
 # ---------------------------------------------------------------------
 
 try{
 
+    $line = "timestamp,level,IP address, Netbox Name, DNS Name" 
+    try {
+        Add-Content -Path $CsvReportPath -Value $line -Encoding UTF8
+    }
+    catch {
+        Write-Warning "Unable to write to log file '$LogPath': $($_.Exception.Message)"
+    }
+
     Write-Log -Level INFO -Message "Starting NetBox to Microsoft DNS synchronization"
     Write-Log -Level INFO -Message "NetBox URL: $NetBoxBaseUrl"
     Write-Log -Level INFO -Message "DNS server: $DnsServer"
-    Write-Log -Level INFO -Message "Forward zones: $($ForwardZones -join ', ')"
+    Write-Log -Level INFO -Message "Forward zone: $ForwardZone"
 
     Test-Prerequisites
 
     # get the DNS records from the DNS Server
-    $dnsRecords = [System.Collections.ArrayList](Get-DNSServerResourceRecord -ComputerName $DnsServer -ZoneName $ForwardZones[0] -RRType A -ErrorAction Stop)    
+    $dnsRecords = [System.Collections.ArrayList](Get-DNSServerResourceRecord -ComputerName $DnsServer -ZoneName $ForwardZone -RRType A -ErrorAction Stop)    
 
     # Get the Netbox IP Addresses for the specified domain
-    $desiredAddresses = Get-NBDomainIPAddresses -Domain $ForwardZones[0]
+    $desiredAddresses = Get-NBDomainIPAddresses -Domain $ForwardZone
 
     
     # Process each desired DNS record
     foreach ($ipObj in $desiredAddresses) {
         # Remove the prefix from the IP address for comparison
         $ipAddress = Get-IPAddressWithoutPrefix -Address $ipObj.address
+        $nbHostname = $ipObj.dns_name 
+        if($nbHostname.Length -gt 0){
+            $nbHostname = Get-Hostname -Fqdn $nbHostname
+        } 
+        Write-Log -Level INFO -Message "Process $ipAddress"
         # test if IP addess is registered in the DNS server
         $existingRecord = $dnsRecords | Where-Object { $_.RecordData.IPv4Address -eq $ipAddress }
         if($existingRecord) {
-            Write-Log -Level INFO -Message "DNS record for IP $($ipObj.address) already exists in DNS server."
             # Remove domain suffix from the existing record's hostname for comparison
-            #$existingHostname = $existingRecord.HostName -replace "\.$($ForwardZones[0])$", ""
-            $dnsHostname = $existingRecord.HostName -replace '\..*',''
-            $nbHostname = $ipObj.dns_name -replace '\..*',''
+            $dnsHostname = $existingRecord[0].HostName
+            if($dnsHostname.Length -gt 0){
+                $dnsHostname = Get-Hostname -Fqdn $dnsHostname
+            }
             # check if the existing record matches the NetBox dns_name
-            if($dnsHostname -ne $nbHostname) { 
-                Write-Log -Level INFO -Message "Hostname Mismatch for IP $($ipObj.address): $($dnsHostname) (DNS) vs $($nbHostname) (NetBox). Updating..."
-                "Hostname Mismatch for IP $($ipObj.address): $dnsHostname (DNS) vs $($ipObj.dns_name) (NetBox)." | Out-File -Append $dnsMismatches
-                "DNS Record: $dnsHostname, NetBox Record: $($ipObj.dns_name)" | Out-File -Append $dnsMismatches
+            if($dnsHostname -ne $nbHostname -and $dnsHostname -ne '@') { 
+                # Update the A Record on the DNS Server
+                try{
+                    Remove-DnsServerResourceRecord -ZoneName $ForwardZone -RRType "A" -ComputerName $DnsServer -Name $dnsHostname -RecordData $ipAddress -Force
+                    Add-DnsServerResourceRecordA -Name $nbHostname -ZoneName $ForwardZone -AllowUpdateAny -IPv4Address $ipAddress -ComputerName $DnsServer -CreatePtr            
+                } catch {
+                    Write-Log -Level ERROR -Message $_.Exception.Message 
+                }
+                Write-Log -Level UPDATE -Message "$ipAddress - $nbHostname  - $dnsHostName"
+                Write-Csv-Log -Level MISMATCH -IPaddress $ipAddress -Netbox $nbHostname -Dns $dnsHostname
             }
             else {
-                Write-Log -Level INFO -Message "DNS record for IP $($ipObj.address) matches NetBox. No action needed"
+                Write-Csv-Log -Level SKIP -IPaddress $ipAddress -Netbox $nbHostname -Dns $dnsHostname
             }
             # Remove the existing record from the list to avoid processing it again
             foreach ($record in $existingRecord) {
                 $dnsRecords.Remove($record)
-                Write-Log -Level INFO -Message "Removed record: $($record.HostName) - $($record.RecordData.IPv4Address). $($dnsRecords.Count) records remaining after removal."
             }
         }
         else {
-            Write-Log -Level INFO -Message "DNS record for IP $($ipObj.address) does not exist. Creating..."
+            if($nbHostname.Length -gt 0){
+                # Add the A Record to the DNS Server
+                try{
+                    Add-DnsServerResourceRecordA -Name $nbHostname -ZoneName $ForwardZone -AllowUpdateAny -IPv4Address $ipAddress -ComputerName $DnsServer -CreatePtr
+                } catch {
+                    Write-Log -Level ERROR -Message $_.Exception.Message    
+                }
+                Write-Csv-Log -Level CREATE -IPaddress $ipAddress -Netbox $nbHostname -Dns "-"
+            }
+            else{
+                Write-Csv-Log -Level CREATE -IPaddress $ipAddress -Netbox "-" -Dns "-"
+            } 
         }   
     }
     Write-Log -Level INFO -Message "Synchronization complete. $($dnsRecords.Count) records remain in DNS that are not in NetBox."
     foreach ($record in $dnsRecords) {
-        Write-Log -Level INFO -Message "Stale DNS record: $($record.HostName)"
+        Write-Log -Level DELETE -Message "Stale DNS record: $($record.HostName) - $($record.RecordData.IPv4Address)"
+        # Remove-DnsServerResourceRecord -ZoneName $ForwardZone -RRType "A" -Name $record[1].HostName -RecordData $record.RecordData.IPv4Address
+        Write-Csv-Log -Level DELETE -IPaddress $record.RecordData.IPv4Address -Netbox "-" -DNs $record.HostName
     }
 }
 catch {

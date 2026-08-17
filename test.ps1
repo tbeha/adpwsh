@@ -41,15 +41,27 @@ function Get-SubnetFilter {
     return $wildcard
 }
 
+function Get-Hostname{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$fqdn
+    )
+    $parts = $fqdn -split '\.', 2
+    $hostname = $parts[0]
+
+    return $hostname
+}
+
+
+
+
 # Main execution
 try {
-    $dt = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
-    $LogPath = "$LogPath-$dt.log"
-    $CsvReportPath = "$CsvReportPath-$dt.csv"  
-    $dnsMismatches = "$dnsMismatches-$dt.json"
-    Write-Host "$($Logpath)"
-    Write-Host "$($CsvReportPath)"
-    Write-Host "$($dnsMismatches)"
+
+    $host1 = Get-Hostname -fqdn "host1.dmo.ctc.int.hpe.com"
+    $host2 = Get-Hostname -fqdn "host2"
+    Write-Host "$($host1) , $($host2)"
+
 }   
 catch {
     Write-Error "An error occurred: $_"
