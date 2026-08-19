@@ -40,7 +40,6 @@ $ErrorActionPreference = "Stop"
 # ---------------------------------------------------------------------
 $dt = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
 $LogPath = "$Path-$dt.log"
-$CsvReportPath = "$Path-$dt.csv"  
 
 $script:Report = New-Object System.Collections.Generic.List[object]
 
@@ -67,7 +66,32 @@ function Write-Log {
     }
 }
 
-function Write-Csv-Log {
+# ---------------------------------------------------------------------
+# Log Database helper functions
+# ---------------------------------------------------------------------
+
+function Connect-LogDB{
+
+
+    $Password = Get-Content 'C:\Users\thomasb\Documents\adpwsh\DNS\nbsync.pwd' -Raw | ConvertTo-SecureString -AsPlainText -Force
+    $Cred = New-Object System.Management.Automation.PSCredential(
+        "nbsync",
+        $Password
+    )
+    try{
+        Open-MySqlConnection `
+            -ConnectionName Nbsync `
+            -Server 10.1.103.17 `
+            -Database nbsync `
+            -Port 3306 `
+            -Credential $Cred    
+    } catch {
+        Write-Host "Error opening database connection: $($_.Exception.Message)"
+        throw
+    }
+}
+
+function Add-LogDBEntry{
     param(
         [Parameter(Mandatory = $true)]
         [ValidateSet("CREATE","UPDATE","DELETE","MISMATCH","SKIP")]
@@ -81,37 +105,18 @@ function Write-Csv-Log {
     )
 
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    $line = "{0}; {1}; {2}; {3}; {4}" -f $timestamp, $Level, $IPaddress, $Netbox, $Dns
 
-    try {
-        Add-Content -Path $CsvReportPath -Value $line -Encoding UTF8
-    }
-    catch {
-        Write-Warning "Unable to write to log file '$LogPath': $($_.Exception.Message)"
-    }
+    $Query = "INSERT INTO dns_netbox_log `
+    (event_time,level,ip_address,netbox_name,dns_name)` 
+    VALUES `
+    ('$timestamp','$Level','$IPaddress','$Netbox','$Dns');"
+
+    $res = Invoke-SqlUpdate -ConnectionName Nbsync -Query $Query
+
 }
 
-function Add-ReportItem {
-    param(
-        [string]$Action,
-        [string]$ZoneName,
-        [string]$RecordName,
-        [string]$RecordType,
-        [string]$IPAddress,
-        [string]$DnsName,
-        [string]$Message
-    )
-
-    $script:Report.Add([pscustomobject]@{
-        Timestamp  = Get-Date
-        Action     = $Action
-        ZoneName   = $ZoneName
-        RecordName = $RecordName
-        RecordType = $RecordType
-        IPAddress  = $IPAddress
-        DnsName    = $DnsName
-        Message    = $Message
-    })
+function Close-Database{
+    Close-SqlConnection -ConnectionName Nbsync
 }
 
 # ---------------------------------------------------------------------
@@ -121,12 +126,12 @@ function Add-ReportItem {
 function Test-Prerequisites {
     Write-Log -Level INFO -Message "Checking prerequisites"
 
+    # DnsServer Powershell Module
     $dnsModule = Get-Module -ListAvailable -Name DnsServer
 
     if (-not $dnsModule) {
         throw "DnsServer PowerShell module not found. Install RSAT DNS tools or run on a DNS server."
     }
-
     Import-Module DnsServer -ErrorAction Stop
 
     try {
@@ -136,7 +141,6 @@ function Test-Prerequisites {
         throw "Unable to query DNS server '$DnsServer'. Error: $($_.Exception.Message)"
     }
 
-
     try {
         $null = Get-DnsServerZone -ComputerName $DnsServer -Name $ForwardZone -ErrorAction Stop
         Write-Log -Level INFO -Message "Validated DNS zone '$ForwardZone' on '$DnsServer'"
@@ -145,14 +149,24 @@ function Test-Prerequisites {
         throw "DNS zone '$ForwardZone' not found or not accessible on '$DnsServer'. Error: $($_.Exception.Message)"
     }
 
-
+    # PowerNetbox Powershell Module
     $dnsModule = Get-Module -ListAvailable -Name PowerNetbox
 
     if (-not $dnsModule) {
         throw "Netbox PowerShell module not found. Install PowerNetbox tool."
     }    
-
     Import-Module PowerNetbox -ErrorAction Stop
+
+    # SimpliySql Powershell Module
+    $dnsModule = Get-Module -ListAvailable -Name SimplySql
+
+    if (-not $dnsModule) {
+        throw "SimplySql PowerShell module not found. Install SimplySql tool."
+    }    
+    Import-Module SimplySql -ErrorAction Stop    
+
+    # Log Database connection 
+    Connect-LogDB
 
 }
 
@@ -240,6 +254,7 @@ function Get-Hostname{
 
 try{
 
+    <#
     $line = "timestamp,level,IP address, Netbox Name, DNS Name" 
     try {
         Add-Content -Path $CsvReportPath -Value $line -Encoding UTF8
@@ -247,6 +262,7 @@ try{
     catch {
         Write-Warning "Unable to write to log file '$LogPath': $($_.Exception.Message)"
     }
+    #>
 
     Write-Log -Level INFO -Message "Starting NetBox to Microsoft DNS synchronization"
     Write-Log -Level INFO -Message "NetBox URL: $NetBoxBaseUrl"
@@ -261,7 +277,6 @@ try{
     # Get the Netbox IP Addresses for the specified domain
     $desiredAddresses = Get-NBDomainIPAddresses -Domain $ForwardZone
 
-    
     # Process each desired DNS record
     foreach ($ipObj in $desiredAddresses) {
         # Remove the prefix from the IP address for comparison
@@ -270,7 +285,7 @@ try{
         if($nbHostname.Length -gt 0){
             $nbHostname = Get-Hostname -Fqdn $nbHostname
         } 
-        Write-Log -Level INFO -Message "Process $ipAddress"
+        #Write-Log -Level INFO -Message "Process $ipAddress"
         # test if IP addess is registered in the DNS server
         $existingRecord = $dnsRecords | Where-Object { $_.RecordData.IPv4Address -eq $ipAddress }
         if($existingRecord) {
@@ -288,11 +303,10 @@ try{
                 } catch {
                     Write-Log -Level ERROR -Message $_.Exception.Message 
                 }
-                Write-Log -Level UPDATE -Message "$ipAddress - $nbHostname  - $dnsHostName"
-                Write-Csv-Log -Level MISMATCH -IPaddress $ipAddress -Netbox $nbHostname -Dns $dnsHostname
+                Add-LogDBEntry -Level MISMATCH -IPaddress $ipAddress -Netbox $nbHostname -Dns $dnsHostname
             }
             else {
-                Write-Csv-Log -Level SKIP -IPaddress $ipAddress -Netbox $nbHostname -Dns $dnsHostname
+                Add-LogDBEntry -Level SKIP -IPaddress $ipAddress -Netbox $nbHostname -Dns $dnsHostname
             }
             # Remove the existing record from the list to avoid processing it again
             foreach ($record in $existingRecord) {
@@ -307,19 +321,21 @@ try{
                 } catch {
                     Write-Log -Level ERROR -Message $_.Exception.Message    
                 }
-                Write-Csv-Log -Level CREATE -IPaddress $ipAddress -Netbox $nbHostname -Dns "-"
+                Add-LogDBEntry -Level CREATE -IPaddress $ipAddress -Netbox $nbHostname -Dns "-"
             }
             else{
-                Write-Csv-Log -Level CREATE -IPaddress $ipAddress -Netbox "-" -Dns "-"
+                Add-LogDBEntry -Level CREATE -IPaddress $ipAddress -Netbox "-" -Dns "-"
             } 
         }   
     }
     Write-Log -Level INFO -Message "Synchronization complete. $($dnsRecords.Count) records remain in DNS that are not in NetBox."
+    Write-Log -Level
     foreach ($record in $dnsRecords) {
-        Write-Log -Level DELETE -Message "Stale DNS record: $($record.HostName) - $($record.RecordData.IPv4Address)"
-        # Remove-DnsServerResourceRecord -ZoneName $ForwardZone -RRType "A" -Name $record[1].HostName -RecordData $record.RecordData.IPv4Address
-        Write-Csv-Log -Level DELETE -IPaddress $record.RecordData.IPv4Address -Netbox "-" -DNs $record.HostName
+        Write-Log -Level DELETE -Message "(\'$($record.HostName)\',\'$($record.RecordData.IPv4Address)\')"
+        #Remove-DnsServerResourceRecord -ZoneName $ForwardZone -RRType "A" -Name $record.HostName -RecordData $record.RecordData.IPv4Address
+        Add-LogDBEntry -Level DELETE -IPaddress $record.RecordData.IPv4Address -Netbox "-" -DNs $record.HostName
     }
+    Close-Database
 }
 catch {
     Write-Log -Level ERROR -Message $_.Exception.Message
