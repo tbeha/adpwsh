@@ -16,6 +16,7 @@
         - Windows PowerShell 5.1 recommended
         - DnsServer PowerShell module / RSAT DNS tools
         - Netbox PowerShell module  
+        - SimplySql PowerShell module
         - Network access to NetBox API
         - Permission to manage Microsoft DNS records
 
@@ -23,6 +24,7 @@
 
 [CmdletBinding()]
 param(
+    [string]$nbsyncpwd = "C:\Users\thomasb\Documents\adpwsh\DNS\nbsync.pwd",
     [string]$netboxBaseUrl = "https://admtb1008.adm.ctc.int.hpe.com/api",
     [string]$netboxToken = 'C:\Users\thomasb\Documents\adpwsh\DNS\netbox.token',
     [string]$DnsServer = "dmodc2.dmo.ctc.int.hpe.com",
@@ -43,28 +45,6 @@ $LogPath = "$Path-$dt.log"
 
 $script:Report = New-Object System.Collections.Generic.List[object]
 
-function Write-Log {
-    param(
-        [Parameter(Mandatory = $true)]
-        [ValidateSet("INFO","WARN","ERROR","CREATE","UPDATE","DELETE","SKIP","DRYRUN")]
-        [string]$Level,
-
-        [Parameter(Mandatory = $true)]
-        [string]$Message
-    )
-
-    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    $line = "{0} [{1}] {2}" -f $timestamp, $Level, $Message
-
-    Write-Host $line
-
-    try {
-        Add-Content -Path $LogPath -Value $line -Encoding UTF8
-    }
-    catch {
-        Write-Warning "Unable to write to log file '$LogPath': $($_.Exception.Message)"
-    }
-}
 
 # ---------------------------------------------------------------------
 # Log Database helper functions
@@ -73,7 +53,7 @@ function Write-Log {
 function Connect-LogDB{
 
 
-    $Password = Get-Content 'C:\Users\thomasb\Documents\adpwsh\DNS\nbsync.pwd' -Raw | ConvertTo-SecureString -AsPlainText -Force
+    $Password = Get-Content $nbsyncpwd -Raw | ConvertTo-SecureString -AsPlainText -Force
     $Cred = New-Object System.Management.Automation.PSCredential(
         "nbsync",
         $Password
@@ -111,9 +91,31 @@ function Add-LogDBEntry{
     VALUES `
     ('$timestamp','$Level','$IPaddress','$Netbox','$Dns');"
 
-    $res = Invoke-SqlUpdate -ConnectionName Nbsync -Query $Query
+    Invoke-SqlUpdate -ConnectionName Nbsync -Query $Query
 
 }
+
+function Write-Log {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("INFO","WARN","ERROR","CREATE","UPDATE","DELETE","SKIP","DRYRUN")]
+        [string]$Level,
+        [Parameter(Mandatory = $true)]
+        [string]$Message,
+        [Parameter(Mandatory = $false)]
+        [string]$IPaddress="0.0.0.0"
+    )
+
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+
+    $Query = "INSERT INTO nbsync_errors `
+    (event_time,level,ip_address,message)`
+    VALUES `
+    ('$timestamp','$Level','$IPaddress','$Message');"
+
+    Invoke-SqlUpdate -ConnectionName Nbsync -Query $Query
+}
+
 
 function Close-Database{
     Close-SqlConnection -ConnectionName Nbsync
@@ -285,7 +287,6 @@ try{
         if($nbHostname.Length -gt 0){
             $nbHostname = Get-Hostname -Fqdn $nbHostname
         } 
-        #Write-Log -Level INFO -Message "Process $ipAddress"
         # test if IP addess is registered in the DNS server
         $existingRecord = $dnsRecords | Where-Object { $_.RecordData.IPv4Address -eq $ipAddress }
         if($existingRecord) {
@@ -301,7 +302,7 @@ try{
                     Remove-DnsServerResourceRecord -ZoneName $ForwardZone -RRType "A" -ComputerName $DnsServer -Name $dnsHostname -RecordData $ipAddress -Force
                     Add-DnsServerResourceRecordA -Name $nbHostname -ZoneName $ForwardZone -AllowUpdateAny -IPv4Address $ipAddress -ComputerName $DnsServer -CreatePtr            
                 } catch {
-                    Write-Log -Level ERROR -Message $_.Exception.Message 
+                    Write-Log -Level ERROR -Message $_.Exception.Message -IPaddress $ipAddress
                 }
                 Add-LogDBEntry -Level MISMATCH -IPaddress $ipAddress -Netbox $nbHostname -Dns $dnsHostname
             }
@@ -319,19 +320,19 @@ try{
                 try{
                     Add-DnsServerResourceRecordA -Name $nbHostname -ZoneName $ForwardZone -AllowUpdateAny -IPv4Address $ipAddress -ComputerName $DnsServer -CreatePtr
                 } catch {
-                    Write-Log -Level ERROR -Message $_.Exception.Message    
+                    Write-Log -Level ERROR -Message $_.Exception.Message -IPaddress $ipAddress   
                 }
                 Add-LogDBEntry -Level CREATE -IPaddress $ipAddress -Netbox $nbHostname -Dns "-"
             }
             else{
-                Add-LogDBEntry -Level CREATE -IPaddress $ipAddress -Netbox "-" -Dns "-"
+                Write-Log -Level ERROR -IPaddress $ipAddress -Message "Missing Netbox Hostname!"
             } 
         }   
     }
     Write-Log -Level INFO -Message "Synchronization complete. $($dnsRecords.Count) records remain in DNS that are not in NetBox."
-    Write-Log -Level
+
     foreach ($record in $dnsRecords) {
-        Write-Log -Level DELETE -Message "(\'$($record.HostName)\',\'$($record.RecordData.IPv4Address)\')"
+        Write-Log -Level DELETE -Message "(\'$($record.HostName)\',\'$($record.RecordData.IPv4Address)\')" -IPaddress $record.RecordData.IPv4Address
         #Remove-DnsServerResourceRecord -ZoneName $ForwardZone -RRType "A" -Name $record.HostName -RecordData $record.RecordData.IPv4Address
         Add-LogDBEntry -Level DELETE -IPaddress $record.RecordData.IPv4Address -Netbox "-" -DNs $record.HostName
     }
@@ -339,5 +340,6 @@ try{
 }
 catch {
     Write-Log -Level ERROR -Message $_.Exception.Message
+    Close-Database
     throw
 }
