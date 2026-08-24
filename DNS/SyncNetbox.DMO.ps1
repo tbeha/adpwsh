@@ -126,7 +126,6 @@ function Close-Database{
 # ---------------------------------------------------------------------
 
 function Test-Prerequisites {
-    Write-Log -Level INFO -Message "Checking prerequisites"
 
     # DnsServer Powershell Module
     $dnsModule = Get-Module -ListAvailable -Name DnsServer
@@ -145,7 +144,6 @@ function Test-Prerequisites {
 
     try {
         $null = Get-DnsServerZone -ComputerName $DnsServer -Name $ForwardZone -ErrorAction Stop
-        Write-Log -Level INFO -Message "Validated DNS zone '$ForwardZone' on '$DnsServer'"
     }
     catch {
         throw "DNS zone '$ForwardZone' not found or not accessible on '$DnsServer'. Error: $($_.Exception.Message)"
@@ -231,10 +229,10 @@ function Get-NBDomainIPAddresses{
         $netboxAddresses += $addresses | Where-Object { $_.address -like "$subnetFilter*"  -and $_.status.value -eq 'active'}    
     }
     if($netboxAddresses){
-        Write-Log -Level INFO -Message "Retrieved $($netboxAddresses.Count) IP addresses from NetBox for domain '$Domain'."
+        Write-Log -Level INFO -Message "Retrieved $($netboxAddresses.Count) IP addresses from NetBox for domain $($Domain)."
     }
     else {
-        Write-Log -Level WARN -Message "No IP addresses found in NetBox for domain '$Domain'."
+        Write-Log -Level WARN -Message "No IP addresses found in NetBox for domain $($Domain)."
     }
     return $netboxAddresses
 }
@@ -266,21 +264,43 @@ try{
     }
     #>
 
+    Test-Prerequisites
+
     Write-Log -Level INFO -Message "Starting NetBox to Microsoft DNS synchronization"
     Write-Log -Level INFO -Message "NetBox URL: $NetBoxBaseUrl"
     Write-Log -Level INFO -Message "DNS server: $DnsServer"
     Write-Log -Level INFO -Message "Forward zone: $ForwardZone"
 
-    Test-Prerequisites
-
     # get the DNS records from the DNS Server
     $dnsRecords = [System.Collections.ArrayList](Get-DNSServerResourceRecord -ComputerName $DnsServer -ZoneName $ForwardZone -RRType A -ErrorAction Stop)    
 
     # Get the Netbox IP Addresses for the specified domain
-    $desiredAddresses = Get-NBDomainIPAddresses -Domain $ForwardZone
+    #$nbAddresses = @()
+    #$nbAddresses = Get-NBDomainIPAddresses -Domain $ForwardZone
+
+    # open the connection to the Netbox
+    Get-NetboxSession    
+    Write-Log -Level INFO -Message "Connected to NetBox: $(Get-NBVersion)"
+
+    # Get the list of Subnets for the specified domain from Netbox
+    $addresses = Get-NBIPAMAddress -All -ErrorAction Stop
+    $subnets = Get-NBIPAMPrefix -All -ErrorAction Stop | Where-Object { $_.tags.name -contains $ForwardZone }
+    $netboxAddresses = @()
+    foreach($sub in $subnets) {
+        $subnetFilter = Get-SubnetFilter -cidr $sub.prefix
+        $netboxAddresses += $addresses | Where-Object { $_.address -like "$subnetFilter*"  -and $_.status.value -eq 'active'}    
+    }
+    if($netboxAddresses){
+        Write-Log -Level INFO -Message "Retrieved $($netboxAddresses.Count) IP addresses from NetBox for domain $($ForwardZone)."
+    }
+    else {
+        Write-Log -Level WARN -Message "No IP addresses found in NetBox for domain $($ForwardZone)."
+        Close-Database
+        exit(-1)
+    }
 
     # Process each desired DNS record
-    foreach ($ipObj in $desiredAddresses) {
+    foreach ($ipObj in $netboxAddresses) {
         # Remove the prefix from the IP address for comparison
         $ipAddress = Get-IPAddressWithoutPrefix -Address $ipObj.address
         $nbHostname = $ipObj.dns_name 
@@ -339,7 +359,7 @@ try{
     Close-Database
 }
 catch {
-    Write-Log -Level ERROR -Message $_.Exception.Message
+    Write-Log -Level ERROR -Message "$($_.Exception.Message)"
     Close-Database
     throw
 }
