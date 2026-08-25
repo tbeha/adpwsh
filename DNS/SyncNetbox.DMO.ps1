@@ -40,8 +40,8 @@ $ErrorActionPreference = "Stop"
 # ---------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------
-$dt = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
-$LogPath = "$Path-$dt.log"
+#$dt = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
+#$LogPath = "$Path-$dt.log"
 
 $script:Report = New-Object System.Collections.Generic.List[object]
 
