@@ -12,7 +12,14 @@ param(
 )
 
 $staleEntries = @(
-    ('modtb1001','10.1.73.48')
+    ('aiec-vme-manager','10.1.25.240'),
+    ('dmoar6003','10.1.40.198'),
+    ('dmoaw29001','10.1.90.11'),
+    ('aro-190126-001.demo.local','10.1.73.32'),
+    ('ovirth200.demo.local','10.1.84.56'),
+    ('ovirth200.demo.local','10.1.84.55'),
+    ('ubudsk02.demo.local','10.1.73.19'),
+    ('svttbx001','10.1.73.37')
 )
 
 
@@ -108,7 +115,8 @@ try{
         # test if IP addess is registered in the DNS server
         $dnsEntry = $dnsRecords | Where-Object { $_.RecordData.IPv4Address -eq $record[1] }        
         #$dnsEntry = Get-DnsServerResourceRecord -ComputerName $DnsServer -ZoneName $ForwardZone -Name $dnsRecord[0]
-        foreach($x in $dnsEntry){
+        foreach(
+            $x in $dnsEntry){
             Write-Log -Level Info -Message "Process $($x.HostName) - $($record[1])"
             try{
                 Remove-DnsServerResourceRecord -ComputerName $DnsServer -ZoneName $ForwardZone -RRType 'A' -Name $x.Hostname -RecordData $record[1]

@@ -45,3 +45,8 @@ testdb.ps1
 DNS/nbsync.pwd
 Logs/NetBox-DNS-Sync-2026-08-20_03-00-03.log
 Logs/NetBox-DNS-Sync-2026-08-20_08-41-16.log
+Logs/DNSstale-2026-08-26_10-46-27.log
+Logs/DNSstale-2026-08-26_10-48-10.log
+Logs/DNSstale-2026-09-23_16-21-22.log
+Logs/DNSstale-2026-11-06_13-46-06.log
+Logs/DNSstale-2026-08-26_10-48-58.log

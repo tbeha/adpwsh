@@ -359,7 +359,7 @@ try{
     Close-Database
 }
 catch {
-    Write-Log -Level ERROR -Message "$($_.Exception.Message)"
+    Write-Log -Level ERROR -MessagGe "$($_.Exception.Message)"
     Close-Database
     throw
 }
